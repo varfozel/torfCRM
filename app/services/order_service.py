@@ -87,6 +87,11 @@ class OrderService:
         session: AsyncSession,
         status: Optional[str] = None,
         customer_id: Optional[int] = None,
+        search_query: Optional[str] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
         skip: int = 0,
         limit: int = 50,
     ) -> Sequence[Order]:
@@ -94,8 +99,31 @@ class OrderService:
             session=session,
             status=status,
             customer_id=customer_id,
+            search_query=search_query,
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
             skip=skip,
             limit=limit,
+        )
+
+    async def count_orders(
+        self,
+        session: AsyncSession,
+        status: Optional[str] = None,
+        customer_id: Optional[int] = None,
+        search_query: Optional[str] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+    ) -> int:
+        return await self.repo.count_orders(
+            session=session,
+            status=status,
+            customer_id=customer_id,
+            search_query=search_query,
+            date_from=date_from,
+            date_to=date_to,
         )
 
     async def update_order(
@@ -193,6 +221,34 @@ class OrderService:
             update_data["notes"] = f"{existing}\n[Скасовано]: {notes}".strip()
 
         return await self.repo.update(session, order, update_data)
+
+    async def plan_order(
+        self,
+        session: AsyncSession,
+        order_id: int,
+    ) -> Order:
+        """Mark order as planned for delivery."""
+        order = await self.repo.get_by_id(session, order_id)
+        if not order:
+            raise ValueError(f"Замовлення #{order_id} не знайдено.")
+
+        if order.status == OrderStatus.CANCELLED.value:
+            raise ValueError(f"Неможливо запланувати скасоване замовлення #{order_id}.")
+
+        update_data = {"status": OrderStatus.PLANNED.value}
+        return await self.repo.update(session, order, update_data)
+
+    async def delete_order(
+        self,
+        session: AsyncSession,
+        order_id: int,
+    ) -> bool:
+        """Delete order by ID."""
+        order = await self.repo.get_by_id(session, order_id)
+        if not order:
+            return False
+        await self.repo.delete(session, order)
+        return True
 
     def enrich_order_response(self, order: Order) -> OrderResponse:
         """Converts Order model to OrderResponse and generates Waze URL."""

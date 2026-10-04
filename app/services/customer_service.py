@@ -1,7 +1,9 @@
-from typing import Optional, Sequence
+from decimal import Decimal
+from typing import Any, Dict, List, Optional, Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.customer import Customer
+from app.models.order import OrderStatus
 from app.repositories.customer_repo import customer_repo
 from app.schemas.customer import CustomerCreate, CustomerUpdate
 
@@ -11,6 +13,29 @@ class CustomerService:
 
     def __init__(self):
         self.repo = customer_repo
+
+    def enrich_customer(self, customer: Customer) -> Dict[str, Any]:
+        """Calculates customer order count and total spend from loaded orders relationship."""
+        orders = getattr(customer, "orders", []) or []
+        non_cancelled = [
+            o for o in orders if getattr(o, "status", None) != OrderStatus.CANCELLED.value
+        ]
+        total = sum(
+            (getattr(o, "total_amount", Decimal("0.00")) for o in non_cancelled),
+            Decimal("0.00"),
+        )
+        return {
+            "id": customer.id,
+            "name": customer.name,
+            "phone": customer.phone,
+            "address": customer.address,
+            "latitude": customer.latitude,
+            "longitude": customer.longitude,
+            "notes": customer.notes,
+            "created_at": customer.created_at,
+            "orders_count": len(orders),
+            "total_spent": total,
+        }
 
     async def create_customer(
         self,

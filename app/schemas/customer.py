@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -29,5 +29,11 @@ class CustomerUpdate(BaseModel):
 class CustomerResponse(CustomerBase):
     id: int
     created_at: datetime
+    orders_count: Optional[int] = 0
+    total_spent: Optional[Decimal] = Decimal("0.00")
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CustomerDetailResponse(CustomerResponse):
+    orders: List[Any] = []

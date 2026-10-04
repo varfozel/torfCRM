@@ -1,5 +1,6 @@
+from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -28,18 +29,41 @@ async def create_order(
 
 @router.get("/", response_model=List[OrderResponse])
 async def list_orders(
+    response: Response,
     order_status: Optional[OrderStatus] = Query(None, alias="status", description="Фільтр за статусом"),
     customer_id: Optional[int] = Query(None, description="Фільтр за ID клієнта"),
+    q: Optional[str] = Query(None, description="Пошук за номером замовлення, клієнтом, телефоном, адресою"),
+    date_from: Optional[datetime] = Query(None, description="Початкова дата (ISO)"),
+    date_to: Optional[datetime] = Query(None, description="Кінцева дата (ISO)"),
+    sort_by: Optional[str] = Query("created_at", description="Поле сортування"),
+    sort_dir: Optional[str] = Query("desc", description="Напрямок сортування (asc, desc)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     session: AsyncSession = Depends(get_db),
 ):
-    """Отримати список замовлень з можливістю фільтрації за статусом та клієнтом."""
+    """Отримати список замовлень з можливістю розширеного пошуку, фільтрації та пагінації."""
     status_val = order_status.value if order_status else None
+    
+    total_count = await order_service.count_orders(
+        session=session,
+        status=status_val,
+        customer_id=customer_id,
+        search_query=q,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    response.headers["X-Total-Count"] = str(total_count)
+    response.headers["Access-Control-Expose-Headers"] = "X-Total-Count"
+
     orders = await order_service.list_orders(
         session=session,
         status=status_val,
         customer_id=customer_id,
+        search_query=q,
+        date_from=date_from,
+        date_to=date_to,
+        sort_by=sort_by or "created_at",
+        sort_dir=sort_dir or "desc",
         skip=skip,
         limit=limit,
     )
@@ -59,6 +83,22 @@ async def get_order(
             detail=f"Замовлення #{order_id} не знайдено",
         )
     return order_service.enrich_order_response(order)
+
+
+@router.post("/{order_id}/plan", response_model=OrderResponse)
+async def plan_order(
+    order_id: int,
+    session: AsyncSession = Depends(get_db),
+):
+    """Позначити замовлення як заплановане до доставки (змінює статус на planned)."""
+    try:
+        order = await order_service.plan_order(session, order_id)
+        return order_service.enrich_order_response(order)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
 
 
 @router.post("/{order_id}/start-delivery", response_model=OrderResponse)
@@ -129,4 +169,18 @@ async def update_order(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
+        )
+
+
+@router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_order(
+    order_id: int,
+    session: AsyncSession = Depends(get_db),
+):
+    """Видалити замовлення."""
+    deleted = await order_service.delete_order(session, order_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Замовлення #{order_id} не знайдено",
         )

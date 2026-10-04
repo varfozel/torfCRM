@@ -3,8 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.schemas.customer import CustomerCreate, CustomerResponse, CustomerUpdate
+from app.schemas.customer import (
+    CustomerCreate,
+    CustomerDetailResponse,
+    CustomerResponse,
+    CustomerUpdate,
+)
 from app.services.customer_service import customer_service
+from app.services.order_service import order_service
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
 
@@ -15,7 +21,8 @@ async def create_customer(
     session: AsyncSession = Depends(get_db),
 ):
     """Створити нового клієнта."""
-    return await customer_service.create_customer(session, customer_in)
+    customer = await customer_service.create_customer(session, customer_in)
+    return customer_service.enrich_customer(customer)
 
 
 @router.get("/", response_model=List[CustomerResponse])
@@ -27,8 +34,10 @@ async def list_customers(
 ):
     """Отримати список клієнтів або виконати пошук за назвою чи номером телефону."""
     if q:
-        return await customer_service.search_customers(session, q, limit=limit)
-    return await customer_service.list_customers(session, skip=skip, limit=limit)
+        customers = await customer_service.search_customers(session, q, limit=limit)
+    else:
+        customers = await customer_service.list_customers(session, skip=skip, limit=limit)
+    return [customer_service.enrich_customer(c) for c in customers]
 
 
 @router.get("/{customer_id}", response_model=CustomerResponse)
@@ -43,7 +52,28 @@ async def get_customer(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Клієнта з ID {customer_id} не знайдено",
         )
-    return customer
+    return customer_service.enrich_customer(customer)
+
+
+@router.get("/{customer_id}/detail", response_model=CustomerDetailResponse)
+async def get_customer_detail(
+    customer_id: int,
+    session: AsyncSession = Depends(get_db),
+):
+    """Отримати деталі клієнта разом із повною історією замовлень."""
+    customer = await customer_service.get_customer(session, customer_id)
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Клієнта з ID {customer_id} не знайдено",
+        )
+    enriched = customer_service.enrich_customer(customer)
+    orders = [
+        order_service.enrich_order_response(o)
+        for o in (customer.orders or [])
+    ]
+    enriched["orders"] = orders
+    return enriched
 
 
 @router.patch("/{customer_id}", response_model=CustomerResponse)
@@ -59,7 +89,7 @@ async def update_customer(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Клієнта з ID {customer_id} не знайдено",
         )
-    return updated
+    return customer_service.enrich_customer(updated)
 
 
 @router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -41,6 +41,23 @@ services:
       postgres:
         condition: service_healthy
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: peat_crm_frontend
+    restart: unless-stopped
+    ports:
+      # Bound to localhost (127.0.0.1) on port 3000 by default.
+      # Ready for reverse-proxying via Nginx or direct browser access.
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8080/api/v1}
+    networks:
+      - peat_network
+    depends_on:
+      - app
+
 volumes:
   peat_postgres_data:
     name: peat_postgres_data
