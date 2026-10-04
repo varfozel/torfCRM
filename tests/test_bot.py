@@ -3,14 +3,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.bot.bot import AccessControlMiddleware
-from app.bot.handlers.orders import render_order_card
+from app.bot.handlers.orders import render_order_card, render_order_summary
 from app.bot.keyboards import (
     cancel_or_skip_keyboard,
-    customer_actions_keyboard,
+    delivery_price_keyboard,
     order_actions_keyboard,
+    order_confirm_keyboard,
 )
 from app.models.customer import Customer
-from app.models.order import Order, OrderStatus
+from app.models.order import DEFAULT_PRODUCT_NAME, Order, OrderStatus
 
 
 def test_order_actions_keyboard():
@@ -54,6 +55,17 @@ def test_cancel_or_skip_keyboard():
     assert "❌ Скасувати введення" in buttons_no_skip
 
 
+def test_delivery_and_confirm_keyboards():
+    deliv_kb = delivery_price_keyboard()
+    deliv_callbacks = [b.callback_data for row in deliv_kb.inline_keyboard for b in row]
+    assert "deliv:free" in deliv_callbacks
+
+    confirm_kb = order_confirm_keyboard()
+    confirm_callbacks = [b.callback_data for row in confirm_kb.inline_keyboard for b in row]
+    assert "order_confirm:yes" in confirm_callbacks
+    assert "order_confirm:no" in confirm_callbacks
+
+
 def test_render_order_card():
     customer = Customer(
         id=5,
@@ -65,10 +77,11 @@ def test_render_order_card():
         id=42,
         customer_id=5,
         customer=customer,
-        product_name="Торф верховий",
-        quantity=Decimal("15.00"),
-        unit_price=Decimal("900.00"),
-        total_amount=Decimal("13500.00"),
+        product_name=DEFAULT_PRODUCT_NAME,
+        quantity=Decimal("10.00"),
+        unit_price=Decimal("200.00"),
+        delivery_price=Decimal("350.00"),
+        total_amount=Decimal("2350.00"),
         delivery_address="смт Маневичі, вул. Шкільна 2",
         delivery_latitude=Decimal("51.298100"),
         delivery_longitude=Decimal("25.553200"),
@@ -80,9 +93,32 @@ def test_render_order_card():
     assert "Замовлення #42" in card
     assert "Тарас Григорович" in card
     assert "+380501112233" in card
-    assert "13500.00" in card
+    assert DEFAULT_PRODUCT_NAME in card
+    assert "2000.00" in card  # Product total
+    assert "350.00" in card   # Delivery price
+    assert "2350.00" in card  # Total amount
     assert "51.298100, 25.553200" in card
     assert "Вивантажити за будинком" in card
+
+
+def test_render_order_summary():
+    data = {
+        "customer_name": "Іван Іванович",
+        "quantity": "10.00",
+        "unit_price": "200.00",
+        "delivery_price": "350.00",
+        "delivery_address": "смт Маневичі, вул. Польова 10",
+        "notes": "Дзвонити водію",
+    }
+    summary = render_order_summary(data)
+    assert "Нове замовлення" in summary
+    assert "Іван Іванович" in summary
+    assert DEFAULT_PRODUCT_NAME in summary
+    assert "2000.00 грн" in summary
+    assert "350.00 грн" in summary
+    assert "2350.00 грн" in summary
+    assert "смт Маневичі, вул. Польова 10" in summary
+    assert "Дзвонити водію" in summary
 
 
 @pytest.mark.asyncio

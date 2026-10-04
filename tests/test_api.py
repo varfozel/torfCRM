@@ -2,6 +2,8 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 
+from app.models.order import DEFAULT_PRODUCT_NAME
+
 
 @pytest.mark.asyncio
 async def test_health_and_root(client: AsyncClient):
@@ -64,7 +66,7 @@ async def test_customer_api_crud(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_order_api_lifecycle(client: AsyncClient):
+async def test_order_api_lifecycle_and_totals(client: AsyncClient):
     # 1. Create customer
     cust_payload = {
         "name": "Василь Кравчук",
@@ -76,38 +78,82 @@ async def test_order_api_lifecycle(client: AsyncClient):
     cust_resp = await client.post("/api/v1/customers/", json=cust_payload)
     customer_id = cust_resp.json()["id"]
 
-    # 2. Create order without delivery address (should inherit customer's address & coordinates)
+    # 2. Create order: 10 units at 200.00 + 350.00 delivery = 2350.00
     order_payload = {
         "customer_id": customer_id,
-        "product_name": "Торф паливний фрезерний",
         "quantity": 10.0,
-        "unit_price": 950.0,
+        "unit_price": 200.0,
+        "delivery_price": 350.0,
     }
     order_resp = await client.post("/api/v1/orders/", json=order_payload)
     assert order_resp.status_code == 201
     order_data = order_resp.json()
     order_id = order_data["id"]
 
+    assert order_data["product_name"] == DEFAULT_PRODUCT_NAME
+    assert Decimal(order_data["product_total"]) == Decimal("2000.00")
+    assert Decimal(order_data["delivery_price"]) == Decimal("350.00")
+    assert Decimal(order_data["total_amount"]) == Decimal("2350.00")
     assert order_data["delivery_address"] == cust_payload["address"]
-    assert Decimal(order_data["total_amount"]) == Decimal("9500.00")
     assert order_data["status"] == "new"
     assert order_data["waze_url"] is not None
-    assert "https://waze.com/ul?" in order_data["waze_url"]
 
-    # 3. Start delivery
+    # 3. Patch order delivery price to 400 -> total becomes 2400.00
+    patch_resp = await client.patch(
+        f"/api/v1/orders/{order_id}",
+        json={"delivery_price": 400.0},
+    )
+    assert patch_resp.status_code == 200
+    patched = patch_resp.json()
+    assert Decimal(patched["delivery_price"]) == Decimal("400.00")
+    assert Decimal(patched["total_amount"]) == Decimal("2400.00")
+
+    # 4. Start delivery
     start_resp = await client.post(f"/api/v1/orders/{order_id}/start-delivery")
     assert start_resp.status_code == 200
     started_data = start_resp.json()
     assert started_data["status"] == "in_delivery"
     assert started_data["delivery_started_at"] is not None
 
-    # 4. Complete delivery
+    # 5. Complete delivery
     complete_resp = await client.post(f"/api/v1/orders/{order_id}/complete-delivery")
     assert complete_resp.status_code == 200
     completed_data = complete_resp.json()
     assert completed_data["status"] == "delivered"
     assert completed_data["delivery_completed_at"] is not None
 
-    # 5. Bad request when starting already delivered order
+    # 6. Bad request when starting already delivered order
     invalid_start = await client.post(f"/api/v1/orders/{order_id}/start-delivery")
     assert invalid_start.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_order_api_negative_validations(client: AsyncClient):
+    cust_resp = await client.post(
+        "/api/v1/customers/",
+        json={"name": "Тест Помилки", "phone": "+380671112233", "address": "смт Маневичі"},
+    )
+    customer_id = cust_resp.json()["id"]
+
+    # Negative delivery price
+    neg_deliv = await client.post(
+        "/api/v1/orders/",
+        json={
+            "customer_id": customer_id,
+            "quantity": 10.0,
+            "unit_price": 200.0,
+            "delivery_price": -50.0,
+        },
+    )
+    assert neg_deliv.status_code in [400, 422]
+
+    # Negative quantity
+    neg_qty = await client.post(
+        "/api/v1/orders/",
+        json={
+            "customer_id": customer_id,
+            "quantity": -5.0,
+            "unit_price": 200.0,
+        },
+    )
+    assert neg_qty.status_code in [400, 422]

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.order import OrderStatus
-from app.schemas.order import OrderCreate, OrderResponse
+from app.schemas.order import OrderCreate, OrderResponse, OrderUpdate
 from app.services.order_service import order_service
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
@@ -102,6 +102,28 @@ async def cancel_order(
     """Скасувати замовлення."""
     try:
         order = await order_service.cancel_order(session, order_id, notes=reason)
+        return order_service.enrich_order_response(order)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.patch("/{order_id}", response_model=OrderResponse)
+async def update_order(
+    order_id: int,
+    order_update: OrderUpdate,
+    session: AsyncSession = Depends(get_db),
+):
+    """Оновити замовлення (кількість, ціну, вартість доставки, адресу тощо)."""
+    try:
+        order = await order_service.update_order(session, order_id, order_update)
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Замовлення #{order_id} не знайдено",
+            )
         return order_service.enrich_order_response(order)
     except ValueError as e:
         raise HTTPException(

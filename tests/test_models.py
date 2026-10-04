@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.customer import Customer
-from app.models.order import Order, OrderStatus
+from app.models.order import DEFAULT_PRODUCT_NAME, Order, OrderStatus
 
 
 @pytest.mark.asyncio
@@ -26,7 +26,7 @@ async def test_create_customer(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_create_order_with_decimal_precision(db_session: AsyncSession):
+async def test_create_order_with_delivery_price_and_single_product(db_session: AsyncSession):
     customer = Customer(
         name="Іван Петренко",
         phone="+380671112233",
@@ -36,16 +36,18 @@ async def test_create_order_with_decimal_precision(db_session: AsyncSession):
     await db_session.commit()
     await db_session.refresh(customer)
 
-    # 15.5 cubic meters at 850.50 UAH/m3
-    quantity = Decimal("15.50")
-    unit_price = Decimal("850.50")
-    total_amount = quantity * unit_price  # 13182.75
+    # 10 units at 200.00 UAH/unit + 350.00 UAH delivery = 2350.00 UAH
+    quantity = Decimal("10.00")
+    unit_price = Decimal("200.00")
+    delivery_price = Decimal("350.00")
+    product_total = quantity * unit_price  # 2000.00
+    total_amount = product_total + delivery_price  # 2350.00
 
     order = Order(
         customer_id=customer.id,
-        product_name="Торф фрезерний кислий pH 3.5-4.5",
         quantity=quantity,
         unit_price=unit_price,
+        delivery_price=delivery_price,
         total_amount=total_amount,
         delivery_address="смт Маневичі, вул. Лісова 5",
         delivery_latitude=Decimal("51.299100"),
@@ -58,11 +60,41 @@ async def test_create_order_with_decimal_precision(db_session: AsyncSession):
 
     assert order.id is not None
     assert order.customer_id == customer.id
-    assert order.quantity == Decimal("15.50")
-    assert order.unit_price == Decimal("850.50")
-    assert order.total_amount == Decimal("13182.75")
+    assert order.product_name == DEFAULT_PRODUCT_NAME
+    assert order.quantity == Decimal("10.00")
+    assert order.unit_price == Decimal("200.00")
+    assert order.product_total == Decimal("2000.00")
+    assert order.delivery_price == Decimal("350.00")
+    assert order.total_amount == Decimal("2350.00")
     assert order.status == OrderStatus.NEW.value
     assert order.customer.name == "Іван Петренко"
+
+
+@pytest.mark.asyncio
+async def test_create_order_with_free_delivery(db_session: AsyncSession):
+    customer = Customer(
+        name="Петро Сидоренко",
+        phone="+380672223344",
+        address="смт Маневичі",
+    )
+    db_session.add(customer)
+    await db_session.commit()
+
+    order = Order(
+        customer_id=customer.id,
+        quantity=Decimal("5.00"),
+        unit_price=Decimal("250.00"),
+        delivery_price=Decimal("0.00"),
+        total_amount=Decimal("1250.00"),
+        delivery_address="смт Маневичі",
+    )
+    db_session.add(order)
+    await db_session.commit()
+    await db_session.refresh(order)
+
+    assert order.delivery_price == Decimal("0.00")
+    assert order.product_total == Decimal("1250.00")
+    assert order.total_amount == Decimal("1250.00")
 
 
 @pytest.mark.asyncio
@@ -78,19 +110,19 @@ async def test_customer_orders_relationship(db_session: AsyncSession):
 
     order1 = Order(
         customer_id=customer.id,
-        product_name="Торф верховий",
         quantity=Decimal("10.00"),
-        unit_price=Decimal("900.00"),
-        total_amount=Decimal("9000.00"),
+        unit_price=Decimal("200.00"),
+        delivery_price=Decimal("300.00"),
+        total_amount=Decimal("2300.00"),
         delivery_address="Ковельський р-н, с. Любитів",
         status=OrderStatus.NEW.value,
     )
     order2 = Order(
         customer_id=customer.id,
-        product_name="Торф паливний (брикет)",
         quantity=Decimal("5.00"),
-        unit_price=Decimal("1500.00"),
-        total_amount=Decimal("7500.00"),
+        unit_price=Decimal("220.00"),
+        delivery_price=Decimal("0.00"),
+        total_amount=Decimal("1100.00"),
         delivery_address="Ковельський р-н, с. Любитів",
         status=OrderStatus.PLANNED.value,
     )
@@ -99,7 +131,7 @@ async def test_customer_orders_relationship(db_session: AsyncSession):
     await db_session.refresh(customer, attribute_names=["orders"])
 
     assert len(customer.orders) == 2
-    assert customer.orders[0].product_name in ["Торф верховий", "Торф паливний (брикет)"]
+    assert customer.orders[0].product_name == DEFAULT_PRODUCT_NAME
 
 
 @pytest.mark.asyncio
@@ -110,10 +142,10 @@ async def test_cascade_delete_customer_orders(db_session: AsyncSession):
         address="м. Ковель",
     )
     order = Order(
-        product_name="Торф розкислений",
         quantity=Decimal("20.00"),
-        unit_price=Decimal("1100.00"),
-        total_amount=Decimal("22000.00"),
+        unit_price=Decimal("180.00"),
+        delivery_price=Decimal("500.00"),
+        total_amount=Decimal("4100.00"),
         delivery_address="м. Ковель",
     )
     customer.orders.append(order)

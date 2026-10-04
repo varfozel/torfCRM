@@ -2,9 +2,9 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.order import OrderStatus
+from app.models.order import DEFAULT_PRODUCT_NAME, OrderStatus
 from app.schemas.customer import CustomerCreate, CustomerUpdate
-from app.schemas.order import OrderCreate
+from app.schemas.order import OrderCreate, OrderUpdate
 from app.services.customer_service import customer_service
 from app.services.navigation import navigation_service
 from app.services.order_service import order_service
@@ -56,7 +56,7 @@ async def test_customer_service_crud_and_search(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_order_service_creation_and_defaults(db_session: AsyncSession):
+async def test_order_creation_formula_and_defaults(db_session: AsyncSession):
     # Create customer with coordinates
     customer = await customer_service.create_customer(
         db_session,
@@ -69,22 +69,157 @@ async def test_order_service_creation_and_defaults(db_session: AsyncSession):
         ),
     )
 
-    # Order 1: omit delivery address and total_amount -> defaults to customer's address & auto-computed total
+    # Test formula from user specification:
+    # Quantity: 10, Unit price: 200, Delivery: 350
+    # product_total = 10 * 200 = 2000
+    # total_amount = 2000 + 350 = 2350
     order_in = OrderCreate(
         customer_id=customer.id,
-        product_name="Торф верховий кислий",
-        quantity=Decimal("12.50"),
-        unit_price=Decimal("800.00"),
+        quantity=Decimal("10.00"),
+        unit_price=Decimal("200.00"),
+        delivery_price=Decimal("350.00"),
     )
     order = await order_service.create_order(db_session, order_in)
 
     assert order.id is not None
+    assert order.product_name == DEFAULT_PRODUCT_NAME
+    assert order.quantity == Decimal("10.00")
+    assert order.unit_price == Decimal("200.00")
+    assert order.product_total == Decimal("2000.00")
+    assert order.delivery_price == Decimal("350.00")
+    assert order.total_amount == Decimal("2350.00")
+
+    # Verify address and coords inherited from customer
     assert order.delivery_address == "с. Троянівка, вул. Центральна 8"
     assert order.delivery_latitude == Decimal("51.350000")
     assert order.delivery_longitude == Decimal("25.600000")
-    # Total amount = 12.50 * 800.00 = 10000.00
-    assert order.total_amount == Decimal("10000.00")
     assert order.status == OrderStatus.NEW.value
+
+
+@pytest.mark.asyncio
+async def test_order_free_delivery(db_session: AsyncSession):
+    customer = await customer_service.create_customer(
+        db_session,
+        CustomerCreate(
+            name="Ольга",
+            phone="+380670001122",
+            address="смт Маневичі",
+        ),
+    )
+
+    # Free delivery (delivery_price = 0)
+    order_in = OrderCreate(
+        customer_id=customer.id,
+        quantity=Decimal("5.00"),
+        unit_price=Decimal("220.00"),
+        delivery_price=Decimal("0.00"),
+    )
+    order = await order_service.create_order(db_session, order_in)
+    assert order.delivery_price == Decimal("0.00")
+    assert order.product_total == Decimal("1100.00")
+    assert order.total_amount == Decimal("1100.00")
+
+
+@pytest.mark.asyncio
+async def test_order_validation_errors(db_session: AsyncSession):
+    customer = await customer_service.create_customer(
+        db_session,
+        CustomerCreate(
+            name="Тест Валідація",
+            phone="+380509990011",
+            address="смт Маневичі",
+        ),
+    )
+
+    # 1. Pydantic schema validation rejects negative delivery price
+    with pytest.raises(ValueError):
+        OrderCreate(
+            customer_id=customer.id,
+            quantity=Decimal("10.00"),
+            unit_price=Decimal("200.00"),
+            delivery_price=Decimal("-50.00"),
+        )
+
+    # 2. Service level validation also rejects negative delivery price if constructed directly
+    with pytest.raises(ValueError, match="доставки не може бути від'ємною"):
+        invalid_order = OrderCreate.model_construct(
+            customer_id=customer.id,
+            product_name=DEFAULT_PRODUCT_NAME,
+            quantity=Decimal("10.00"),
+            unit_price=Decimal("200.00"),
+            delivery_price=Decimal("-50.00"),
+            delivery_address="смт Маневичі",
+        )
+        await order_service.create_order(db_session, invalid_order)
+
+    # 3. Rejects zero or negative quantity
+    with pytest.raises(ValueError):
+        OrderCreate(
+            customer_id=customer.id,
+            quantity=Decimal("0.00"),
+            unit_price=Decimal("200.00"),
+            delivery_price=Decimal("100.00"),
+        )
+
+    with pytest.raises(ValueError, match="більшою за нуль"):
+        invalid_qty = OrderCreate.model_construct(
+            customer_id=customer.id,
+            product_name=DEFAULT_PRODUCT_NAME,
+            quantity=Decimal("0.00"),
+            unit_price=Decimal("200.00"),
+            delivery_price=Decimal("100.00"),
+            delivery_address="смт Маневичі",
+        )
+        await order_service.create_order(db_session, invalid_qty)
+
+    # 4. Rejects negative unit price
+    with pytest.raises(ValueError):
+        OrderCreate(
+            customer_id=customer.id,
+            quantity=Decimal("10.00"),
+            unit_price=Decimal("-10.00"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_order_update_recalculates_totals(db_session: AsyncSession):
+    customer = await customer_service.create_customer(
+        db_session,
+        CustomerCreate(
+            name="Григорій",
+            phone="+380671239876",
+            address="смт Маневичі",
+        ),
+    )
+    order = await order_service.create_order(
+        db_session,
+        OrderCreate(
+            customer_id=customer.id,
+            quantity=Decimal("10.00"),
+            unit_price=Decimal("200.00"),
+            delivery_price=Decimal("300.00"),
+        ),
+    )
+    assert order.total_amount == Decimal("2300.00")
+
+    # Update delivery price to 400
+    updated = await order_service.update_order(
+        db_session,
+        order.id,
+        OrderUpdate(delivery_price=Decimal("400.00")),
+    )
+    assert updated.delivery_price == Decimal("400.00")
+    assert updated.total_amount == Decimal("2400.00")
+
+    # Update quantity to 15
+    updated2 = await order_service.update_order(
+        db_session,
+        order.id,
+        OrderUpdate(quantity=Decimal("15.00")),
+    )
+    assert updated2.quantity == Decimal("15.00")
+    # 15 * 200 + 400 = 3400.00
+    assert updated2.total_amount == Decimal("3400.00")
 
 
 @pytest.mark.asyncio
@@ -100,9 +235,9 @@ async def test_order_delivery_lifecycle(db_session: AsyncSession):
 
     order_in = OrderCreate(
         customer_id=customer.id,
-        product_name="Торф для лохини (кислий)",
         quantity=Decimal("20.00"),
-        unit_price=Decimal("850.00"),
+        unit_price=Decimal("200.00"),
+        delivery_price=Decimal("400.00"),
     )
     order = await order_service.create_order(db_session, order_in)
     assert order.status == OrderStatus.NEW.value
@@ -139,9 +274,9 @@ async def test_order_cancellation(db_session: AsyncSession):
         db_session,
         OrderCreate(
             customer_id=customer.id,
-            product_name="Брикет торф'яний",
             quantity=Decimal("3.00"),
-            unit_price=Decimal("1600.00"),
+            unit_price=Decimal("210.00"),
+            delivery_price=Decimal("150.00"),
         ),
     )
     cancelled = await order_service.cancel_order(db_session, order.id, notes="Клієнт змінив плани")
@@ -153,32 +288,26 @@ async def test_order_cancellation(db_session: AsyncSession):
 
 
 def test_navigation_service():
-    # Test Waze coordinate generation
     url_coords = navigation_service.generate_waze_url(
         latitude=Decimal("51.298100"),
         longitude=Decimal("25.553200"),
     )
     assert url_coords == "https://waze.com/ul?ll=51.298100,25.553200&navigate=yes"
 
-    # Test Waze address fallback
     url_addr = navigation_service.generate_waze_url(address="смт Маневичі, Волинь")
     assert "https://waze.com/ul?q=" in url_addr
     assert "navigate=yes" in url_addr
 
-    # Test coordinate parser from Viber-copied text
-    # 1. Plain coordinates
     lat1, lon1 = navigation_service.parse_coordinates("51.2981, 25.5532")
     assert lat1 == Decimal("51.2981")
     assert lon1 == Decimal("25.5532")
 
-    # 2. Google Maps URL pin
     lat2, lon2 = navigation_service.parse_coordinates(
         "https://www.google.com/maps?q=51.350123,25.612345"
     )
     assert lat2 == Decimal("51.350123")
     assert lon2 == Decimal("25.612345")
 
-    # 3. Warehouse info centralized
     wh = navigation_service.warehouse_info
     assert "name" in wh
     assert "latitude" in wh

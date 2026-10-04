@@ -3,7 +3,6 @@ from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
 from sqlalchemy import (
-    BigInteger,
     DateTime,
     ForeignKey,
     Numeric,
@@ -17,6 +16,8 @@ from app.models.base import Base, BIGINT_ID
 
 if TYPE_CHECKING:
     from app.models.customer import Customer
+
+DEFAULT_PRODUCT_NAME = "Торф'яний брикет"
 
 
 class OrderStatus(str, Enum):
@@ -37,9 +38,20 @@ class Order(Base):
         nullable=False,
         index=True,
     )
-    product_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    product_name: Mapped[str] = mapped_column(
+        String(255),
+        default=DEFAULT_PRODUCT_NAME,
+        server_default=DEFAULT_PRODUCT_NAME,
+        nullable=False,
+    )
     quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    delivery_price: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        default=Decimal("0.00"),
+        server_default="0.00",
+        nullable=False,
+    )
     total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
 
     delivery_address: Mapped[str] = mapped_column(Text, nullable=False)
@@ -75,8 +87,14 @@ class Order(Base):
         lazy="selectin",
     )
 
+    @property
+    def product_total(self) -> Decimal:
+        """Вартість товару: quantity * unit_price."""
+        return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
+
     def __repr__(self) -> str:
         return (
             f"<Order(id={self.id}, customer_id={self.customer_id}, "
-            f"product='{self.product_name}', status='{self.status}')>"
+            f"product='{self.product_name}', delivery_price={self.delivery_price}, "
+            f"total_amount={self.total_amount})>"
         )

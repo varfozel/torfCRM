@@ -7,13 +7,14 @@ from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKe
 
 from app.bot.keyboards import (
     cancel_or_skip_keyboard,
+    delivery_price_keyboard,
     main_menu_keyboard,
     order_actions_keyboard,
-    quick_products_keyboard,
+    order_confirm_keyboard,
 )
 from app.bot.states import OrderCreateStates
 from app.database import AsyncSessionLocal
-from app.models.order import OrderStatus
+from app.models.order import DEFAULT_PRODUCT_NAME, OrderStatus
 from app.schemas.order import OrderCreate
 from app.services.customer_service import customer_service
 from app.services.navigation import navigation_service
@@ -48,13 +49,18 @@ def render_order_card(order) -> str:
 
     notes_line = f"📝 Примітки: _{order.notes}_\n" if order.notes else ""
 
+    product_total = getattr(order, "product_total", (order.quantity * order.unit_price).quantize(Decimal("0.01")))
+    delivery_price = getattr(order, "delivery_price", Decimal("0.00"))
+
     return (
         f"📦 **Замовлення #{order.id}** — {status_label}\n\n"
         f"👤 **Клієнт:** {cust_name}\n"
         f"📞 **Телефон:** `{cust_phone}`\n"
-        f"🌱 **Товар:** {order.product_name}\n"
-        f"⚖️ **Об'єм:** {order.quantity} | **Ціна:** {order.unit_price} грн\n"
-        f"💰 **Загальна сума:** `{order.total_amount}` грн\n\n"
+        f"🧱 **Товар:** {order.product_name}\n"
+        f"⚖️ **Кількість:** {order.quantity} | **Ціна за од.:** {order.unit_price} грн\n"
+        f"💵 **Сума товару:** `{product_total}` грн\n"
+        f"🚚 **Доставка:** `{delivery_price}` грн\n"
+        f"💰 **Разом до сплати:** `{order.total_amount}` грн\n\n"
         f"🏠 **Адреса доставки:** {order.delivery_address}\n"
         f"{coords_line}"
         f"{delivery_times}"
@@ -62,11 +68,40 @@ def render_order_card(order) -> str:
     )
 
 
+def render_order_summary(data: dict) -> str:
+    """Форматування підсумку перед підтвердженням замовлення."""
+    cust_name = data.get("customer_name", "Клієнт")
+    qty = Decimal(data["quantity"])
+    price = Decimal(data["unit_price"])
+    deliv = Decimal(data.get("delivery_price", "0.00"))
+    prod_total = (qty * price).quantize(Decimal("0.01"))
+    total = (prod_total + deliv).quantize(Decimal("0.01"))
+    addr = data.get("delivery_address", "")
+    coords = ""
+    if data.get("delivery_lat") and data.get("delivery_lon"):
+        coords = f"📍 Координати: `{data['delivery_lat']}, {data['delivery_lon']}`\n"
+    notes = f"📝 Примітки: _{data['notes']}_\n" if data.get("notes") else ""
+
+    return (
+        f"📋 **Нове замовлення**\n\n"
+        f"👤 **Клієнт:** {cust_name}\n"
+        f"• **Товар:** {DEFAULT_PRODUCT_NAME}\n"
+        f"• **Кількість:** {qty}\n"
+        f"• **Ціна за одиницю:** {price} грн\n"
+        f"• **Сума товару:** {prod_total} грн\n"
+        f"• **Доставка:** {deliv} грн\n"
+        f"• **Разом до сплати: {total} грн**\n\n"
+        f"🏠 **Адреса:** {addr}\n"
+        f"{coords}"
+        f"{notes}\n"
+        f"Підтвердіть створення замовлення:"
+    )
+
+
 @router.message(Command("orders"))
 @router.message(F.text == "📋 Замовлення")
 async def cmd_list_orders(message: Message):
     """Список останніх замовлень з можливістю фільтрації за статусом."""
-    # Перевіримо параметр статусу (напр. /orders in_delivery або /orders new)
     status_filter = None
     if message.text and message.text.startswith("/orders"):
         parts = message.text.split(maxsplit=1)
@@ -95,7 +130,8 @@ async def cmd_list_orders(message: Message):
         await message.answer(
             f"📦 **Замовлення #{o.id}** | {status_label}\n"
             f"👤 {cust_name} (📞 `{o.customer.phone if o.customer else ''}`)\n"
-            f"🌱 {o.product_name} — {o.quantity} ({o.total_amount} грн)\n"
+            f"🧱 {o.product_name}: {o.quantity} (товар: {o.product_total} грн, доставка: {o.delivery_price} грн)\n"
+            f"💰 Разом: **{o.total_amount} грн**\n"
             f"🏠 {o.delivery_address}\n"
             f"👉 Деталі: `/order_{o.id}`",
             parse_mode="Markdown",
@@ -147,7 +183,6 @@ async def cb_start_delivery(call: CallbackQuery):
     try:
         async with AsyncSessionLocal() as session:
             order = await order_service.start_delivery(session, order_id)
-            # Re-read with customer relation
             order = await order_service.get_order(session, order_id)
 
         await call.answer("🚚 Доставку розпочато!", show_alert=False)
@@ -213,7 +248,8 @@ async def cmd_new_order(message: Message, state: FSMContext):
     await state.clear()
     await state.set_state(OrderCreateStates.select_customer)
     await message.answer(
-        "📦 **Оформлення нового замовлення** (Крок 1/6)\n\n"
+        "📦 **Оформлення нового замовлення** (Крок 1/5)\n"
+        "Товар: **Торф'яний брикет**\n\n"
         "Введіть **ID клієнта** (напр. `1`) або номер телефону / прізвище для пошуку:",
         reply_markup=cancel_or_skip_keyboard(allow_skip=False),
         parse_mode="Markdown",
@@ -240,11 +276,12 @@ async def cb_start_order_for_customer(call: CallbackQuery, state: FSMContext):
         customer_lat=str(customer.latitude) if customer.latitude else None,
         customer_lon=str(customer.longitude) if customer.longitude else None,
     )
-    await state.set_state(OrderCreateStates.product_name)
+    await state.set_state(OrderCreateStates.quantity)
     await call.message.answer(
-        f"👤 Клієнт: **{customer.name}** (`{customer.phone}`)\n\n"
-        "🌱 (Крок 2/6) Оберіть продукцію зі списку або напишіть назву повідомленням:",
-        reply_markup=quick_products_keyboard(),
+        f"👤 Клієнт: **{customer.name}** (`{customer.phone}`)\n"
+        f"🧱 Товар: **{DEFAULT_PRODUCT_NAME}**\n\n"
+        "⚖️ (Крок 2/5) Введіть кількість торф'яного брикету (напр. `10` або `15.5`):",
+        reply_markup=cancel_or_skip_keyboard(allow_skip=False),
         parse_mode="Markdown",
     )
 
@@ -254,7 +291,6 @@ async def process_select_customer(message: Message, state: FSMContext):
     input_text = message.text.strip()
 
     async with AsyncSessionLocal() as session:
-        # Якщо введено число — шукаємо за прямим ID
         if input_text.isdigit():
             customer = await customer_service.get_customer(session, int(input_text))
             if customer:
@@ -265,16 +301,16 @@ async def process_select_customer(message: Message, state: FSMContext):
                     customer_lat=str(customer.latitude) if customer.latitude else None,
                     customer_lon=str(customer.longitude) if customer.longitude else None,
                 )
-                await state.set_state(OrderCreateStates.product_name)
+                await state.set_state(OrderCreateStates.quantity)
                 await message.answer(
-                    f"✅ Обрано клієнта: **{customer.name}**\n🏠 Адреса: {customer.address}\n\n"
-                    "🌱 (Крок 2/6) Оберіть або введіть назву продукції:",
-                    reply_markup=quick_products_keyboard(),
+                    f"✅ Обрано клієнта: **{customer.name}**\n"
+                    f"🧱 Товар: **{DEFAULT_PRODUCT_NAME}**\n\n"
+                    "⚖️ (Крок 2/5) Введіть кількість торф'яного брикету (напр. `10` або `15.5`):",
+                    reply_markup=cancel_or_skip_keyboard(allow_skip=False),
                     parse_mode="Markdown",
                 )
                 return
 
-        # Пошук за текстом або номером
         customers = await customer_service.search_customers(session, input_text, limit=5)
 
     if not customers:
@@ -293,50 +329,19 @@ async def process_select_customer(message: Message, state: FSMContext):
             customer_lat=str(c.latitude) if c.latitude else None,
             customer_lon=str(c.longitude) if c.longitude else None,
         )
-        await state.set_state(OrderCreateStates.product_name)
+        await state.set_state(OrderCreateStates.quantity)
         await message.answer(
-            f"✅ Знайдено клієнта: **{c.name}** (ID: `{c.id}`)\n🏠 {c.address}\n\n"
-            "🌱 (Крок 2/6) Оберіть або введіть назву продукції:",
-            reply_markup=quick_products_keyboard(),
+            f"✅ Знайдено клієнта: **{c.name}** (ID: `{c.id}`)\n"
+            f"🧱 Товар: **{DEFAULT_PRODUCT_NAME}**\n\n"
+            "⚖️ (Крок 2/5) Введіть кількість торф'яного брикету (напр. `10` або `15.5`):",
+            reply_markup=cancel_or_skip_keyboard(allow_skip=False),
             parse_mode="Markdown",
         )
     else:
-        # Кілька результатів - пропонуємо ввести точний ID
         text = "🔍 Знайдено кілька клієнтів. Введіть точний ID зі списку:\n\n"
         for c in customers:
             text += f"• ID `{c.id}`: **{c.name}** (📞 `{c.phone}`, {c.address})\n"
         await message.answer(text, parse_mode="Markdown")
-
-
-@router.callback_query(F.data.startswith("prod:"), OrderCreateStates.product_name)
-async def cb_select_product(call: CallbackQuery, state: FSMContext):
-    product_name = call.data.split(":", 1)[1]
-    await state.update_data(product_name=product_name)
-    await state.set_state(OrderCreateStates.quantity)
-    await call.answer()
-    await call.message.answer(
-        f"🌱 Продукція: **{product_name}**\n\n"
-        "⚖️ (Крок 3/6) Введіть кількість (напр. `10` або `15.5`):",
-        reply_markup=cancel_or_skip_keyboard(allow_skip=False),
-        parse_mode="Markdown",
-    )
-
-
-@router.message(OrderCreateStates.product_name)
-async def process_custom_product_name(message: Message, state: FSMContext):
-    name = message.text.strip()
-    if len(name) < 2:
-        await message.answer("⚠️ Назва товару занадто коротка:")
-        return
-
-    await state.update_data(product_name=name)
-    await state.set_state(OrderCreateStates.quantity)
-    await message.answer(
-        f"🌱 Продукція: **{name}**\n\n"
-        "⚖️ (Крок 3/6) Введіть кількість (напр. `10` або `15.5`):",
-        reply_markup=cancel_or_skip_keyboard(allow_skip=False),
-        parse_mode="Markdown",
-    )
 
 
 @router.message(OrderCreateStates.quantity)
@@ -354,7 +359,7 @@ async def process_quantity(message: Message, state: FSMContext):
     await state.set_state(OrderCreateStates.unit_price)
     await message.answer(
         f"⚖️ Кількість: **{qty}**\n\n"
-        "💵 (Крок 4/6) Введіть ціну за одиницю в грн (наприклад `850` або `900.50`):",
+        "💵 (Крок 3/5) Введіть ціну за одиницю брикету в грн (наприклад `200` або `850`):",
         reply_markup=cancel_or_skip_keyboard(allow_skip=False),
         parse_mode="Markdown",
     )
@@ -368,23 +373,65 @@ async def process_unit_price(message: Message, state: FSMContext):
         if price < 0:
             raise ValueError
     except Exception:
-        await message.answer("⚠️ Введіть коректну ціну (наприклад `850`):")
+        await message.answer("⚠️ Введіть коректну ціну (наприклад `200` або `850`):")
         return
+
+    await state.update_data(unit_price=str(price))
+    await state.set_state(OrderCreateStates.delivery_price)
+    await message.answer(
+        f"💵 Ціна за одиницю: **{price} грн**\n\n"
+        "🚚 (Крок 4/5) Введіть вартість доставки в грн (наприклад `350` або `0`):\n"
+        "Або натисніть кнопку нижче, якщо доставка безкоштовна:",
+        reply_markup=delivery_price_keyboard(),
+        parse_mode="Markdown",
+    )
+
+
+@router.callback_query(F.data == "deliv:free", OrderCreateStates.delivery_price)
+async def cb_free_delivery(call: CallbackQuery, state: FSMContext):
+    await state.update_data(delivery_price="0.00")
+    await state.set_state(OrderCreateStates.delivery_address)
+    await call.answer()
 
     data = await state.get_data()
     customer_addr = data.get("customer_address", "")
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Адреса клієнта", callback_data="addr:use_customer")]
+        ]
+    )
+    await call.message.answer(
+        "🚚 Доставка: **Безкоштовно (0.00 грн)**\n\n"
+        f"🏠 (Крок 5/5) Введіть адресу доставки або натисніть '🏠 Адреса клієнта' ({customer_addr}):",
+        reply_markup=kb,
+        parse_mode="Markdown",
+    )
 
-    await state.update_data(unit_price=str(price))
+
+@router.message(OrderCreateStates.delivery_price)
+async def process_delivery_price(message: Message, state: FSMContext):
+    text = message.text.strip().replace(",", ".")
+    try:
+        deliv = Decimal(text)
+        if deliv < 0:
+            raise ValueError
+    except Exception:
+        await message.answer("⚠️ Введіть коректну вартість доставки (наприклад `350` або `0`):")
+        return
+
+    await state.update_data(delivery_price=str(deliv.quantize(Decimal("0.01"))))
     await state.set_state(OrderCreateStates.delivery_address)
 
+    data = await state.get_data()
+    customer_addr = data.get("customer_address", "")
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🏠 Адреса клієнта", callback_data="addr:use_customer")]
         ]
     )
     await message.answer(
-        f"💵 Ціна: **{price} грн**\n\n"
-        f"🏠 (Крок 5/6) Введіть адресу доставки або натисніть '🏠 Адреса клієнта' ({customer_addr}):",
+        f"🚚 Доставка: **{deliv} грн**\n\n"
+        f"🏠 (Крок 5/5) Введіть адресу доставки або натисніть '🏠 Адреса клієнта' ({customer_addr}):",
         reply_markup=kb,
         parse_mode="Markdown",
     )
@@ -399,7 +446,7 @@ async def cb_use_customer_address(call: CallbackQuery, state: FSMContext):
     await call.answer()
     await call.message.answer(
         f"🏠 Адреса доставки: **{addr}**\n\n"
-        "📍 (Крок 6/6) Введіть координати або посилання з Viber (необов'язково):\n"
+        "📍 Введіть координати або посилання з Viber (необов'язково):\n"
         "Або натисніть '⏭ Пропустити'.",
         reply_markup=cancel_or_skip_keyboard(allow_skip=True),
         parse_mode="Markdown",
@@ -417,7 +464,7 @@ async def process_delivery_address(message: Message, state: FSMContext):
     await state.set_state(OrderCreateStates.delivery_coordinates)
     await message.answer(
         f"🏠 Адреса доставки: **{addr}**\n\n"
-        "📍 (Крок 6/6) Введіть координати або посилання з Viber (необов'язково):\n"
+        "📍 Введіть координати або посилання з Viber (необов'язково):\n"
         "Або натисніть '⏭ Пропустити'.",
         reply_markup=cancel_or_skip_keyboard(allow_skip=True),
         parse_mode="Markdown",
@@ -438,38 +485,83 @@ async def process_delivery_coordinates(message: Message, state: FSMContext):
             )
             return
 
+    await state.update_data(
+        delivery_lat=str(lat) if lat is not None else None,
+        delivery_lon=str(lon) if lon is not None else None,
+    )
+    await state.set_state(OrderCreateStates.notes)
+    await message.answer(
+        "📝 Введіть примітки до замовлення (необов'язково):\nАбо натисніть '⏭ Пропустити'.",
+        reply_markup=cancel_or_skip_keyboard(allow_skip=True),
+        parse_mode="Markdown",
+    )
+
+
+@router.message(OrderCreateStates.notes)
+async def process_notes_and_show_summary(message: Message, state: FSMContext):
+    text = message.text.strip()
+    notes = None if text == "⏭ Пропустити" else text
+    await state.update_data(notes=notes)
+
+    data = await state.get_data()
+    summary_text = render_order_summary(data)
+
+    await state.set_state(OrderCreateStates.confirm_order)
+    await message.answer(
+        summary_text,
+        reply_markup=order_confirm_keyboard(),
+        parse_mode="Markdown",
+    )
+
+
+@router.callback_query(F.data == "order_confirm:yes", OrderCreateStates.confirm_order)
+async def cb_confirm_order(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     await state.clear()
 
-    # Створюємо замовлення через order_service
+    deliv_lat = Decimal(data["delivery_lat"]) if data.get("delivery_lat") else None
+    deliv_lon = Decimal(data["delivery_lon"]) if data.get("delivery_lon") else None
+
     order_in = OrderCreate(
         customer_id=data["customer_id"],
-        product_name=data["product_name"],
+        product_name=DEFAULT_PRODUCT_NAME,
         quantity=Decimal(data["quantity"]),
         unit_price=Decimal(data["unit_price"]),
+        delivery_price=Decimal(data.get("delivery_price", "0.00")),
         delivery_address=data.get("delivery_address"),
-        delivery_latitude=lat if lat is not None else (Decimal(data["customer_lat"]) if data.get("customer_lat") else None),
-        delivery_longitude=lon if lon is not None else (Decimal(data["customer_lon"]) if data.get("customer_lon") else None),
+        delivery_latitude=deliv_lat,
+        delivery_longitude=deliv_lon,
+        notes=data.get("notes"),
     )
 
-    async with AsyncSessionLocal() as session:
-        order = await order_service.create_order(session, order_in)
-        order = await order_service.get_order(session, order.id)
+    try:
+        async with AsyncSessionLocal() as session:
+            order = await order_service.create_order(session, order_in)
+            order = await order_service.get_order(session, order.id)
 
-    waze_url = navigation_service.generate_waze_url(
-        order.delivery_latitude, order.delivery_longitude, order.delivery_address
-    )
-    gmaps_url = navigation_service.generate_google_maps_url(
-        order.delivery_latitude, order.delivery_longitude, order.delivery_address
-    )
+        waze_url = navigation_service.generate_waze_url(
+            order.delivery_latitude, order.delivery_longitude, order.delivery_address
+        )
+        gmaps_url = navigation_service.generate_google_maps_url(
+            order.delivery_latitude, order.delivery_longitude, order.delivery_address
+        )
 
-    await message.answer(
-        "🎉 **Замовлення успішно створено!**",
-        reply_markup=main_menu_keyboard(),
-        parse_mode="Markdown",
+        await call.answer("🎉 Замовлення створено!")
+        await call.message.edit_text(
+            f"🎉 **Замовлення #{order.id} успішно створено!**\n\n" + render_order_card(order),
+            reply_markup=order_actions_keyboard(order.id, order.status, waze_url, gmaps_url),
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        await call.answer(f"Помилка при збереженні: {e}", show_alert=True)
+
+
+@router.callback_query(F.data == "order_confirm:no", OrderCreateStates.confirm_order)
+async def cb_cancel_order_creation(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await call.answer("Створення скасовано.")
+    await call.message.edit_text(
+        "❌ Створення замовлення скасовано. Жодних даних не збережено.",
+        reply_markup=None,
     )
-    await message.answer(
-        render_order_card(order),
-        reply_markup=order_actions_keyboard(order.id, order.status, waze_url, gmaps_url),
-        parse_mode="Markdown",
-    )
+    await call.message.answer("Оберіть дію в меню нижче:", reply_markup=main_menu_keyboard())

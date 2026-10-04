@@ -94,32 +94,34 @@ def customer_actions_keyboard(customer_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def quick_products_keyboard() -> InlineKeyboardMarkup:
-    """Швидкий вибір найпопулярніших позицій торфу."""
+def delivery_price_keyboard() -> InlineKeyboardMarkup:
+    """Швидкий вибір безкоштовної доставки."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Торф фрезерний кислий (pH 3.5-4.5)",
-                    callback_data="prod:Торф фрезерний кислий (pH 3.5-4.5)",
+                    text="🎁 Безкоштовна доставка (0 грн)",
+                    callback_data="deliv:free",
+                )
+            ]
+        ]
+    )
+
+
+def order_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Кнопки підтвердження створення замовлення."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Підтвердити створення",
+                    callback_data="order_confirm:yes",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="Торф верховий нейтралізований",
-                    callback_data="prod:Торф верховий нейтралізований",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Торф низинний",
-                    callback_data="prod:Торф низинний",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Торф'яний паливний брикет",
-                    callback_data="prod:Торф'яний паливний брикет",
+                    text="❌ Скасувати",
+                    callback_data="order_confirm:no",
                 )
             ],
         ]

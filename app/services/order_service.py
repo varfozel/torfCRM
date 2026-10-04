@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Optional, Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.order import Order, OrderStatus
+from app.models.order import DEFAULT_PRODUCT_NAME, Order, OrderStatus
 from app.repositories.customer_repo import customer_repo
 from app.repositories.order_repo import order_repo
 from app.schemas.order import OrderCreate, OrderResponse, OrderUpdate
@@ -11,7 +11,7 @@ from app.services.navigation import navigation_service
 
 
 class OrderService:
-    """Service handling Order operations and delivery lifecycles."""
+    """Service handling Order operations, delivery lifecycles, and financial calculations."""
 
     def __init__(self):
         self.repo = order_repo
@@ -27,6 +27,21 @@ class OrderService:
         customer = await self.customer_repo.get_by_id(session, order_in.customer_id)
         if not customer:
             raise ValueError(f"Клієнта з ID {order_in.customer_id} не знайдено.")
+
+        # Validate non-negative quantities and prices
+        if order_in.quantity <= Decimal("0.00"):
+            raise ValueError("Кількість товару повинна бути більшою за нуль.")
+
+        if order_in.unit_price < Decimal("0.00"):
+            raise ValueError("Ціна за одиницю не може бути від'ємною.")
+
+        delivery_price = (order_in.delivery_price if order_in.delivery_price is not None else Decimal("0.00")).quantize(Decimal("0.01"))
+        if delivery_price < Decimal("0.00"):
+            raise ValueError("Вартість доставки не може бути від'ємною.")
+
+        # Calculate product total and total amount
+        product_total = (order_in.quantity * order_in.unit_price).quantize(Decimal("0.01"))
+        total_amount = (product_total + delivery_price).quantize(Decimal("0.01"))
 
         # Default delivery address and coordinates to customer's if not explicitly provided
         delivery_address = order_in.delivery_address or customer.address
@@ -44,16 +59,12 @@ class OrderService:
             else customer.longitude
         )
 
-        # Calculate total if not provided: quantity * unit_price
-        total_amount = order_in.total_amount
-        if total_amount is None:
-            total_amount = (order_in.quantity * order_in.unit_price).quantize(Decimal("0.01"))
-
         order_data = {
             "customer_id": customer.id,
-            "product_name": order_in.product_name.strip(),
+            "product_name": DEFAULT_PRODUCT_NAME,
             "quantity": order_in.quantity,
             "unit_price": order_in.unit_price,
+            "delivery_price": delivery_price,
             "total_amount": total_amount,
             "delivery_address": delivery_address.strip(),
             "delivery_latitude": delivery_lat,
@@ -87,14 +98,46 @@ class OrderService:
             limit=limit,
         )
 
+    async def update_order(
+        self,
+        session: AsyncSession,
+        order_id: int,
+        order_update: OrderUpdate,
+    ) -> Optional[Order]:
+        order = await self.repo.get_by_id(session, order_id)
+        if not order:
+            return None
+
+        data = order_update.model_dump(exclude_unset=True)
+        if "status" in data and isinstance(data["status"], OrderStatus):
+            data["status"] = data["status"].value
+
+        # Validate values if provided
+        qty = data.get("quantity", order.quantity)
+        if qty <= Decimal("0.00"):
+            raise ValueError("Кількість товару повинна бути більшою за нуль.")
+
+        price = data.get("unit_price", order.unit_price)
+        if price < Decimal("0.00"):
+            raise ValueError("Ціна за одиницю не може бути від'ємною.")
+
+        deliv = data.get("delivery_price", order.delivery_price)
+        if deliv < Decimal("0.00"):
+            raise ValueError("Вартість доставки не може бути від'ємною.")
+
+        # If quantity, price or delivery_price changed, recalculate total_amount
+        if any(k in data for k in ["quantity", "unit_price", "delivery_price"]):
+            product_total = (qty * price).quantize(Decimal("0.01"))
+            data["total_amount"] = (product_total + deliv).quantize(Decimal("0.01"))
+
+        return await self.repo.update(session, order, data)
+
     async def start_delivery(
         self,
         session: AsyncSession,
         order_id: int,
     ) -> Order:
-        """
-        Transition order status to 'in_delivery' and record start timestamp.
-        """
+        """Transition order status to 'in_delivery' and record start timestamp."""
         order = await self.repo.get_by_id(session, order_id)
         if not order:
             raise ValueError(f"Замовлення #{order_id} не знайдено.")
@@ -115,9 +158,7 @@ class OrderService:
         session: AsyncSession,
         order_id: int,
     ) -> Order:
-        """
-        Transition order status to 'delivered' and record completion timestamp.
-        """
+        """Transition order status to 'delivered' and record completion timestamp."""
         order = await self.repo.get_by_id(session, order_id)
         if not order:
             raise ValueError(f"Замовлення #{order_id} не знайдено.")
@@ -141,9 +182,7 @@ class OrderService:
         order_id: int,
         notes: Optional[str] = None,
     ) -> Order:
-        """
-        Mark order as cancelled.
-        """
+        """Mark order as cancelled."""
         order = await self.repo.get_by_id(session, order_id)
         if not order:
             raise ValueError(f"Замовлення #{order_id} не знайдено.")
@@ -156,9 +195,7 @@ class OrderService:
         return await self.repo.update(session, order, update_data)
 
     def enrich_order_response(self, order: Order) -> OrderResponse:
-        """
-        Converts Order model to OrderResponse and generates Waze URL.
-        """
+        """Converts Order model to OrderResponse and generates Waze URL."""
         waze_url = self.nav.generate_waze_url(
             latitude=order.delivery_latitude,
             longitude=order.delivery_longitude,
