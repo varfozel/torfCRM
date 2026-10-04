@@ -1,0 +1,51 @@
+name: peat_crm
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: peat_crm_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-peat_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-peat_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-peat_crm}
+    volumes:
+      - peat_postgres_data:/var/lib/postgresql/data
+    networks:
+      - peat_network
+    # Notice: ports are NOT published to host to keep PostgreSQL private and avoid VPS conflicts.
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-peat_user} -d ${POSTGRES_DB:-peat_crm}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: peat_crm_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      # Bound to localhost (127.0.0.1) on port 8080 by default.
+      # Ready for reverse-proxying via Nginx or Caddy on the VPS.
+      - "127.0.0.1:${APP_PORT:-8080}:8000"
+    networks:
+      - peat_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  peat_postgres_data:
+    name: peat_postgres_data
+
+networks:
+  peat_network:
+    name: peat_network
+    driver: bridge

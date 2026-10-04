@@ -8,11 +8,36 @@ from app.config import get_settings
 settings = get_settings()
 
 
+import asyncio
+import logging
+
+logger = logging.getLogger("peat_crm")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup logic (e.g. database connectivity check or bot startup)
+    bot_task = None
+    bot_instance = None
+    if settings.TELEGRAM_BOT_TOKEN and not settings.TELEGRAM_BOT_TOKEN.startswith("123456789:ABC"):
+        try:
+            from app.bot.bot import create_bot_and_dispatcher
+            bot_instance, dp = create_bot_and_dispatcher()
+            await bot_instance.delete_webhook(drop_pending_updates=True)
+            bot_task = asyncio.create_task(dp.start_polling(bot_instance))
+            logger.info("Telegram bot polling started in background.")
+        except Exception as e:
+            logger.error(f"Failed to start Telegram bot polling: {e}")
+
     yield
-    # Shutdown logic
+
+    if bot_task:
+        bot_task.cancel()
+        try:
+            await bot_task
+        except (asyncio.CancelledError, Exception):
+            pass
+    if bot_instance:
+        await bot_instance.session.close()
 
 
 app = FastAPI(
