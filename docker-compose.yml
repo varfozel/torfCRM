@@ -52,7 +52,7 @@ services:
       # Ready for reverse-proxying via Nginx or direct browser access.
       - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8080/api/v1}
+      - NEXT_PUBLIC_API_URL=/api/v1
     networks:
       - peat_network
     depends_on:
