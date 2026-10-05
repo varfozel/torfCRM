@@ -105,7 +105,7 @@ export function CreateCustomerModal({ isOpen, onClose }: CreateCustomerModalProp
           <input
             type="text"
             required
-            placeholder="Волинська обл., Маневицький р-н, с. Оконськ, вул. Центральна 15"
+            placeholder="Волинська обл., Луцький р-н, с. Підгайці, вул. Центральна 15"
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             className="mt-1 w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-1 focus:ring-emerald-500"

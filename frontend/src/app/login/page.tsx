@@ -2,7 +2,7 @@
 
 import React, { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Flame, Lock, User, ArrowRight, ShieldCheck, AlertCircle } from "lucide-react";
+import { Flame, Lock, User, ArrowRight, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 
 function LoginForm() {
@@ -11,8 +11,8 @@ function LoginForm() {
   const redirect = searchParams.get("redirect") || "/";
   const { login } = useAuth();
 
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("peat_manager_2026");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,9 +68,10 @@ function LoginForm() {
             <input
               type="text"
               required
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="admin"
+              placeholder="Введіть логін..."
               className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 text-slate-900 dark:text-white transition-all"
             />
           </div>
@@ -85,15 +86,16 @@ function LoginForm() {
             <input
               type="password"
               required
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••••••"
+              placeholder="Введіть пароль..."
               className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 text-slate-900 dark:text-white transition-all"
             />
           </div>
         </div>
 
-        <div className="flex items-center justify-between text-xs pt-1">
+        <div className="flex items-center text-xs pt-1">
           <label className="flex items-center gap-2 cursor-pointer select-none text-slate-600 dark:text-slate-400">
             <input
               type="checkbox"
@@ -103,7 +105,6 @@ function LoginForm() {
             />
             <span>Запам&apos;ятати сесію</span>
           </label>
-          <span className="text-slate-400">Маневицький склад</span>
         </div>
 
         <button
@@ -121,26 +122,6 @@ function LoginForm() {
           )}
         </button>
       </form>
-
-      {/* Demo Credentials Helper Card */}
-      <div className="mt-8 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 space-y-1.5">
-        <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
-          <ShieldCheck className="w-4 h-4 text-emerald-600" />
-          <span>Тестовий доступ менеджера:</span>
-        </div>
-        <div className="flex justify-between">
-          <span>Логін:</span>
-          <code className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 font-mono font-bold">
-            admin
-          </code>
-        </div>
-        <div className="flex justify-between">
-          <span>Пароль:</span>
-          <code className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 font-mono font-bold">
-            peat_manager_2026
-          </code>
-        </div>
-      </div>
     </div>
   );
 }
