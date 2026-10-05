@@ -345,16 +345,22 @@ function OrdersContent() {
                     </td>
 
                     <td className="p-3.5 text-slate-700 dark:text-slate-300 font-medium">
-                      {formatCurrency(ord.product_total ?? ord.unit_price)}
+                      <div className="font-bold text-slate-900 dark:text-white">
+                        {formatCurrency(ord.product_total ?? ord.quantity * ord.unit_price)}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {formatCurrency(ord.unit_price)}/т
+                      </div>
                     </td>
 
                     <td className="p-3.5 text-slate-600 dark:text-slate-400">
                       <div>
                         {ord.delivery_price === 0 ? "Самовивіз" : formatCurrency(ord.delivery_price)}
                       </div>
-                      {ord.distance_km && (
+                      {(ord.distance_km || ord.delivery_price_per_km) && (
                         <div className="text-[10px] text-slate-400">
-                          {ord.distance_km} км
+                          {ord.distance_km ? `${ord.distance_km} км` : ""}
+                          {ord.delivery_price_per_km ? ` (${ord.delivery_price_per_km} грн/км)` : ""}
                         </div>
                       )}
                     </td>

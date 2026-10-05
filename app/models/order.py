@@ -47,6 +47,10 @@ class Order(Base):
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    delivery_price_per_km: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2),
+        nullable=True,
+    )
     delivery_price: Mapped[Decimal] = mapped_column(
         Numeric(10, 2),
         default=Decimal("0.00"),
@@ -98,9 +102,21 @@ class Order(Base):
     )
 
     @property
+    def quantity_tons(self) -> Decimal:
+        return self.quantity
+
+    @property
+    def price_per_ton(self) -> Decimal:
+        return self.unit_price
+
+    @property
     def product_total(self) -> Decimal:
         """Вартість товару: quantity * unit_price."""
         return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
+
+    @property
+    def total_price(self) -> Decimal:
+        return self.total_amount
 
     def __repr__(self) -> str:
         return (

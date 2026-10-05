@@ -75,10 +75,16 @@ async def test_migration_compatibility_with_old_orders():
             ALTER TABLE orders ADD COLUMN distance_km NUMERIC(10, 2);
         """))
 
-    # 5. Verify existing order data is preserved intact
+    # 5. Simulate migration 004: ALTER TABLE orders ADD COLUMN delivery_price_per_km NUMERIC(10, 2)
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE orders ADD COLUMN delivery_price_per_km NUMERIC(10, 2);
+        """))
+
+    # 6. Verify existing order data is preserved intact
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession)
     async with session_factory() as session:
-        result = await session.execute(text("SELECT id, product_name, quantity, unit_price, delivery_price, total_amount, order_date, distance_km FROM orders WHERE id = 1"))
+        result = await session.execute(text("SELECT id, product_name, quantity, unit_price, delivery_price, total_amount, order_date, distance_km, delivery_price_per_km FROM orders WHERE id = 1"))
         row = result.mappings().one()
 
         assert row["id"] == 1
@@ -89,6 +95,7 @@ async def test_migration_compatibility_with_old_orders():
         assert Decimal(str(row["total_amount"])) == Decimal("2000.00")
         assert row["order_date"] is not None
         assert row["distance_km"] is None
+        assert row["delivery_price_per_km"] is None
 
     await engine.dispose()
 

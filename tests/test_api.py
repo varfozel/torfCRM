@@ -184,18 +184,21 @@ async def test_order_date_and_distance_api(client: AsyncClient):
     assert order_resp.status_code == 201
     data = order_resp.json()
     assert data["order_date"] == "2026-10-15"
-    assert float(data["distance_km"]) == 42.5
-    assert float(data["total_amount"]) == 13000.0  # 12500 tier + 500 delivery
+    assert float(data["total_amount"]) == 25500.0  # 2 * 12500 + 500 delivery
 
-    # Update order_date
+    # Update order_date and delivery_price_per_km
     patch_resp = await client.patch(
         f"/api/v1/orders/{data['id']}",
-        json={"order_date": "2026-10-20", "distance_km": 45.0},
+        json={"order_date": "2026-10-20", "distance_km": 45.0, "delivery_price_per_km": 350.0},
     )
     assert patch_resp.status_code == 200
     patched = patch_resp.json()
     assert patched["order_date"] == "2026-10-20"
     assert float(patched["distance_km"]) == 45.0
+    assert float(patched["delivery_price_per_km"]) == 350.0
+    # 2 * 12500 + 45.0 * 350.0 = 25000 + 15750 = 40750
+    assert float(patched["delivery_price"]) == 15750.0
+    assert float(patched["total_amount"]) == 40750.0
 
 
 @pytest.mark.asyncio

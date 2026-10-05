@@ -14,12 +14,17 @@ class OrderBase(BaseModel):
         max_length=255,
         description="Назва продукції (за замовчуванням 'Торф'яний брикет')",
     )
-    quantity: Decimal = Field(..., gt=0, description="Кількість торф'яного брикету")
-    unit_price: Decimal = Field(..., ge=0, description="Ціна за одиницю на момент замовлення (грн)")
-    delivery_price: Decimal = Field(
-        default=Decimal("0.00"),
+    quantity: Decimal = Field(..., gt=0, description="Кількість торф'яного брикету (тонн)")
+    unit_price: Decimal = Field(..., ge=0, description="Ціна за тонну (грн)")
+    delivery_price_per_km: Optional[Decimal] = Field(
+        None,
         ge=0,
-        description="Вартість доставки в грн (0 якщо безкоштовно)",
+        description="Ціна доставки за км (грн/км)",
+    )
+    delivery_price: Optional[Decimal] = Field(
+        default=None,
+        ge=0,
+        description="Вартість доставки в грн (якщо не розраховується за км)",
     )
     delivery_address: Optional[str] = Field(
         None,
@@ -37,8 +42,9 @@ class OrderCreate(OrderBase):
 
 
 class OrderUpdate(BaseModel):
-    quantity: Optional[Decimal] = Field(None, gt=0, description="Кількість")
-    unit_price: Optional[Decimal] = Field(None, ge=0, description="Ціна за одиницю")
+    quantity: Optional[Decimal] = Field(None, gt=0, description="Кількість (тонн)")
+    unit_price: Optional[Decimal] = Field(None, ge=0, description="Ціна за тонну (грн)")
+    delivery_price_per_km: Optional[Decimal] = Field(None, ge=0, description="Ціна доставки за км (грн/км)")
     delivery_price: Optional[Decimal] = Field(None, ge=0, description="Вартість доставки")
     delivery_address: Optional[str] = None
     delivery_latitude: Optional[Decimal] = Field(None, ge=-90, le=90)
@@ -55,6 +61,7 @@ class OrderResponse(BaseModel):
     product_name: str
     quantity: Decimal
     unit_price: Decimal
+    delivery_price_per_km: Optional[Decimal] = None
     delivery_price: Decimal
     total_amount: Decimal
     delivery_address: str
@@ -71,9 +78,24 @@ class OrderResponse(BaseModel):
     customer: Optional[CustomerResponse] = None
 
     @computed_field
+    def quantity_tons(self) -> Decimal:
+        """Кількість тонн (синонім quantity)."""
+        return self.quantity
+
+    @computed_field
+    def price_per_ton(self) -> Decimal:
+        """Ціна за тонну (синонім unit_price)."""
+        return self.unit_price
+
+    @computed_field
     def product_total(self) -> Decimal:
-        """Сума вартості товару (total_amount - delivery_price)."""
-        return (self.total_amount - self.delivery_price).quantize(Decimal("0.01"))
+        """Вартість товару: quantity * unit_price."""
+        return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
+
+    @computed_field
+    def total_price(self) -> Decimal:
+        """Загальна сума (синонім total_amount)."""
+        return self.total_amount
 
     @model_validator(mode="after")
     def ensure_order_date(self) -> "OrderResponse":

@@ -1,62 +1,74 @@
 /**
- * Centralized pricing constants and utility functions for Peat CRM.
- * 
- * Configured Tiers:
- * 1 тонна -> 12 000 грн
- * 2 тонни -> 12 500 грн
- * 3 тонни -> 13 000 грн
+ * Calculation logic for Peat CRM orders.
+ *
+ * Formula:
+ * - Product total = quantity_tons * price_per_ton
+ * - Delivery total = distance_km * delivery_price_per_km
+ * - Total amount = Product total + Delivery total
  */
 
-export interface TonnagePricingOption {
-  tons: number;
-  price: number;
-  label: string;
-  badge?: string;
+export interface OrderCalculationInput {
+  quantityTons: number | "" | null;
+  pricePerTon: number | "" | null;
+  distanceKm: number | "" | null;
+  deliveryPricePerKm: number | "" | null;
 }
 
-export const TONNAGE_OPTIONS: TonnagePricingOption[] = [
-  { tons: 1, price: 12000, label: "1 тонна" },
-  { tons: 2, price: 12500, label: "2 тонни", badge: "Популярний" },
-  { tons: 3, price: 13000, label: "3 тонни", badge: "Вигідний" },
-];
-
-/**
- * Returns the fixed tier price for the chosen tonnage.
- * Returns null if not in predefined tiers.
- */
-export function getPriceForTons(tons: number | null | undefined): number | null {
-  if (!tons) return null;
-  const option = TONNAGE_OPTIONS.find((opt) => opt.tons === Number(tons));
-  return option ? option.price : null;
+export interface OrderCalculationResult {
+  quantityTons: number;
+  pricePerTon: number;
+  distanceKm: number;
+  deliveryPricePerKm: number;
+  productTotal: number;
+  deliveryTotal: number;
+  totalAmount: number;
+  hasProductCalculation: boolean;
+  hasDeliveryCalculation: boolean;
+  isComplete: boolean;
 }
 
-/**
- * Calculates order totals: product price + delivery price.
- */
 export function calculateOrderTotals({
-  quantity,
-  unitPrice,
-  deliveryPrice,
-}: {
-  quantity: number | "" | null;
-  unitPrice: number | "" | null;
-  deliveryPrice: number | "" | null;
-}) {
-  const q = typeof quantity === "number" ? quantity : 0;
-  const p = typeof unitPrice === "number" ? unitPrice : 0;
-  const d = typeof deliveryPrice === "number" ? deliveryPrice : 0;
+  quantityTons,
+  pricePerTon,
+  distanceKm,
+  deliveryPricePerKm,
+}: OrderCalculationInput): OrderCalculationResult {
+  const hasQty =
+    typeof quantityTons === "number" && !isNaN(quantityTons) && quantityTons > 0;
+  const hasPrice =
+    typeof pricePerTon === "number" && !isNaN(pricePerTon) && pricePerTon >= 0;
+  const hasDist =
+    typeof distanceKm === "number" && !isNaN(distanceKm) && distanceKm >= 0;
+  const hasRate =
+    typeof deliveryPricePerKm === "number" &&
+    !isNaN(deliveryPricePerKm) &&
+    deliveryPricePerKm >= 0;
 
-  // The unit price directly represents the tier price of the fuel
-  const productTotal = p;
-  const totalAmount = Math.round((productTotal + d) * 100) / 100;
+  const q = hasQty ? quantityTons : 0;
+  const p = hasPrice ? pricePerTon : 0;
+  const dist = hasDist ? distanceKm : 0;
+  const rate = hasRate ? deliveryPricePerKm : 0;
+
+  // Use precise cents rounding to avoid JavaScript floating point errors:
+  // (e.g. 60.1 * 350 = 21035)
+  const productTotal =
+    hasQty && hasPrice ? Math.round(q * p * 100) / 100 : 0;
+
+  const deliveryTotal =
+    hasDist && hasRate ? Math.round(dist * rate * 100) / 100 : 0;
+
+  const totalAmount = Math.round((productTotal + deliveryTotal) * 100) / 100;
 
   return {
-    quantity: q,
-    unitPrice: p,
-    deliveryPrice: d,
+    quantityTons: q,
+    pricePerTon: p,
+    distanceKm: dist,
+    deliveryPricePerKm: rate,
     productTotal,
+    deliveryTotal,
     totalAmount,
-    hasProductPrice: typeof unitPrice === "number" && unitPrice > 0,
-    hasDeliveryPrice: typeof deliveryPrice === "number",
+    hasProductCalculation: hasQty && hasPrice,
+    hasDeliveryCalculation: hasDist && hasRate,
+    isComplete: hasQty && hasPrice && hasDist && hasRate,
   };
 }

@@ -200,7 +200,7 @@ export function OrderDetailModal({
             </div>
 
             <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
-              <span className="text-[11px] text-slate-500">Ціна товару:</span>
+              <span className="text-[11px] text-slate-500">Ціна за тонну:</span>
               <p className="font-bold text-slate-900 dark:text-white">
                 {formatCurrency(order.unit_price)}
               </p>
@@ -218,15 +218,20 @@ export function OrderDetailModal({
               <p className="font-bold text-slate-900 dark:text-white">
                 {formatCurrency(order.delivery_price)}
               </p>
+              {order.delivery_price_per_km && (
+                <span className="text-[10px] text-slate-400 block font-normal">
+                  ({order.delivery_price_per_km} грн/км)
+                </span>
+              )}
             </div>
           </div>
 
           <div className="flex justify-between items-center p-3 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900 text-xs">
             <span className="text-slate-600 dark:text-slate-400">
-              Вартість товару ({order.quantity} т):
+              Вартість товару ({order.quantity} т × {formatCurrency(order.unit_price)}):
             </span>
             <span className="font-bold text-slate-900 dark:text-white">
-              {formatCurrency(order.product_total ?? order.total_amount - order.delivery_price)}
+              {formatCurrency(order.product_total ?? order.quantity * order.unit_price)}
             </span>
           </div>
         </div>

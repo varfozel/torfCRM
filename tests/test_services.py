@@ -97,6 +97,37 @@ async def test_order_creation_formula_and_defaults(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_order_creation_per_km_formula(db_session: AsyncSession):
+    customer = await customer_service.create_customer(
+        db_session,
+        CustomerCreate(
+            name="Іван Тестовий",
+            phone="+380991112233",
+            address="с. Підгайці",
+        ),
+    )
+
+    # User specification example:
+    # 2 tons * 12500 грн + 60.1 km * 350 грн/km = 25000 + 21035 = 46035 грн
+    order_in = OrderCreate(
+        customer_id=customer.id,
+        quantity=Decimal("2.00"),
+        unit_price=Decimal("12500.00"),
+        distance_km=Decimal("60.10"),
+        delivery_price_per_km=Decimal("350.00"),
+    )
+    order = await order_service.create_order(db_session, order_in)
+
+    assert order.quantity == Decimal("2.00")
+    assert order.unit_price == Decimal("12500.00")
+    assert order.product_total == Decimal("25000.00")
+    assert order.distance_km == Decimal("60.10")
+    assert order.delivery_price_per_km == Decimal("350.00")
+    assert order.delivery_price == Decimal("21035.00")
+    assert order.total_amount == Decimal("46035.00")
+
+
+@pytest.mark.asyncio
 async def test_order_free_delivery(db_session: AsyncSession):
     customer = await customer_service.create_customer(
         db_session,

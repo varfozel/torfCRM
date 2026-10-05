@@ -25,7 +25,7 @@ import { api } from "@/lib/api";
 import { Customer, OrderCreatePayload, RouteCalculationResult } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/components/common/ToastProvider";
-import { TONNAGE_OPTIONS, calculateOrderTotals } from "@/lib/pricing";
+import { calculateOrderTotals } from "@/lib/pricing";
 
 interface CreateOrderModalProps {
   isOpen: boolean;
@@ -74,13 +74,17 @@ function CreateOrderForm({
 
   const [orderDate, setOrderDate] = useState<string>(defaultDateStr);
 
-  // 4. Quantity (Tonnage) & 5. Price (No 0 defaults)
+  // 4. Quantity (Tonnage in tons) - initial state empty "", no 0 defaults
   const [quantity, setQuantity] = useState<number | "">("");
+
+  // 5. Price per ton (грн) - initial state empty "", no 0 defaults
   const [unitPrice, setUnitPrice] = useState<number | "">("");
 
-  // 6. Mileage (Distance in km) & 7. Delivery Price (No 0 defaults)
+  // 6. Distance (km) - initial state empty "", auto-filled from routing or manual
   const [distanceKm, setDistanceKm] = useState<number | "">("");
-  const [deliveryPrice, setDeliveryPrice] = useState<number | "">("");
+
+  // 7. Delivery price per km (грн/км) - initial state empty "", no 0 defaults
+  const [deliveryPricePerKm, setDeliveryPricePerKm] = useState<number | "">("");
 
   // Notes
   const [notes, setNotes] = useState("");
@@ -108,39 +112,47 @@ function CreateOrderForm({
   );
 
   // Function to calculate route from warehouse to address
-  const calculateRoute = useCallback(async (addr: string, lat?: number | null, lon?: number | null) => {
-    if (!addr && (lat === undefined || lat === null)) {
-      setRouteResult(null);
-      return;
-    }
-
-    setIsCalculatingRoute(true);
-    setRouteError(null);
-
-    try {
-      const res = await api.navigation.calculateRoute({
-        address: addr.trim(),
-        latitude: lat ?? (deliveryLat ? parseFloat(deliveryLat) : null),
-        longitude: lon ?? (deliveryLon ? parseFloat(deliveryLon) : null),
-      });
-
-      setRouteResult(res);
-
-      if (res.success && res.distance_km != null) {
-        setDistanceKm(Number(res.distance_km));
-        if (res.latitude && res.longitude) {
-          setDeliveryLat(String(res.latitude));
-          setDeliveryLon(String(res.longitude));
-        }
-      } else if (!res.success) {
-        setRouteError(res.message || "Не вдалося визначити маршрут автоматично. Введіть кілометраж вручну.");
+  const calculateRoute = useCallback(
+    async (addr: string, lat?: number | null, lon?: number | null) => {
+      if (!addr && (lat === undefined || lat === null)) {
+        setRouteResult(null);
+        return;
       }
-    } catch {
-      setRouteError("Сервіс розрахунку маршруту тимчасово недоступний. Ви можете вказати кілометраж вручну.");
-    } finally {
-      setIsCalculatingRoute(false);
-    }
-  }, [deliveryLat, deliveryLon]);
+
+      setIsCalculatingRoute(true);
+      setRouteError(null);
+
+      try {
+        const res = await api.navigation.calculateRoute({
+          address: addr.trim(),
+          latitude: lat ?? (deliveryLat ? parseFloat(deliveryLat) : null),
+          longitude: lon ?? (deliveryLon ? parseFloat(deliveryLon) : null),
+        });
+
+        setRouteResult(res);
+
+        if (res.success && res.distance_km != null) {
+          setDistanceKm(Number(res.distance_km));
+          if (res.latitude && res.longitude) {
+            setDeliveryLat(String(res.latitude));
+            setDeliveryLon(String(res.longitude));
+          }
+        } else if (!res.success) {
+          setRouteError(
+            res.message ||
+              "Не вдалося визначити маршрут автоматично. Введіть кілометраж вручну."
+          );
+        }
+      } catch {
+        setRouteError(
+          "Сервіс розрахунку маршруту тимчасово недоступний. Ви можете вказати кілометраж вручну."
+        );
+      } finally {
+        setIsCalculatingRoute(false);
+      }
+    },
+    [deliveryLat, deliveryLon]
+  );
 
   // Handle selecting an existing customer
   const handleSelectCustomer = (cust: Customer) => {
@@ -166,21 +178,23 @@ function CreateOrderForm({
     return () => clearTimeout(timer);
   }, [deliveryAddress, calculateRoute]);
 
-  // Handle tonnage selection: automatically sets the centralized tier price
-  const handleSelectTons = (tons: number, price: number) => {
-    setQuantity(tons);
-    setUnitPrice(price);
-  };
-
-  // Calculations for preview at the bottom
-  const { productTotal, totalAmount, hasProductPrice } = useMemo(
+  // Calculations for summary at the bottom
+  const {
+    productTotal,
+    deliveryTotal,
+    totalAmount,
+    hasProductCalculation,
+    hasDeliveryCalculation,
+    isComplete,
+  } = useMemo(
     () =>
       calculateOrderTotals({
-        quantity,
-        unitPrice,
-        deliveryPrice,
+        quantityTons: quantity,
+        pricePerTon: unitPrice,
+        distanceKm,
+        deliveryPricePerKm,
       }),
-    [quantity, unitPrice, deliveryPrice]
+    [quantity, unitPrice, distanceKm, deliveryPricePerKm]
   );
 
   // Mutation to create order
@@ -189,7 +203,11 @@ function CreateOrderForm({
       let finalCustomerId = selectedCustomerId;
 
       if (customerMode === "new") {
-        if (!newCustomerName.trim() || !newCustomerPhone.trim() || !newCustomerAddress.trim()) {
+        if (
+          !newCustomerName.trim() ||
+          !newCustomerPhone.trim() ||
+          !newCustomerAddress.trim()
+        ) {
           throw new Error("Будь ласка, заповніть ім'я, телефон та адресу нового клієнта");
         }
         const createdCustomer = await api.customers.create({
@@ -215,11 +233,11 @@ function CreateOrderForm({
       }
 
       if (quantity === "" || quantity <= 0) {
-        throw new Error("Будь ласка, оберіть кількість тонн (1, 2 або 3 т)");
+        throw new Error("Будь ласка, вкажіть кількість тонн (більше 0)");
       }
 
       if (unitPrice === "" || unitPrice < 0) {
-        throw new Error("Ціна замовлення не може бути порожньою або від'ємною");
+        throw new Error("Ціна за тонну не може бути порожньою або від'ємною");
       }
 
       const payload: OrderCreatePayload = {
@@ -227,11 +245,13 @@ function CreateOrderForm({
         product_name: "Торф'яний брикет",
         quantity: Number(quantity),
         unit_price: Number(unitPrice),
-        delivery_price: typeof deliveryPrice === "number" ? deliveryPrice : 0,
+        distance_km: typeof distanceKm === "number" ? distanceKm : null,
+        delivery_price_per_km:
+          typeof deliveryPricePerKm === "number" ? deliveryPricePerKm : null,
+        delivery_price: typeof deliveryTotal === "number" ? deliveryTotal : 0,
         delivery_address: deliveryAddress.trim(),
         delivery_latitude: deliveryLat ? parseFloat(deliveryLat) : null,
         delivery_longitude: deliveryLon ? parseFloat(deliveryLon) : null,
-        distance_km: typeof distanceKm === "number" ? distanceKm : null,
         order_date: orderDate,
         notes: notes.trim() || undefined,
       };
@@ -240,17 +260,17 @@ function CreateOrderForm({
     },
     onSuccess: (order) => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
       toast.success(
         `Замовлення #${order.id} успішно створено!`,
-        `Дата: ${order.order_date || orderDate} • Сума: ${formatCurrency(order.total_amount)}`
+        `Дата: ${order.order_date} • Сума: ${formatCurrency(order.total_amount)}`
       );
       onClose();
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : "Не вдалося створити замовлення";
-      toast.error("Помилка створення замовлення", msg);
+      const msg = err instanceof Error ? err.message : "Помилка при створенні замовлення";
+      toast.error("Не вдалося створити замовлення", msg);
     },
   });
 
@@ -259,30 +279,25 @@ function CreateOrderForm({
     createOrderMutation.mutate();
   };
 
-  const isCustomerChosen = Boolean(
-    customerMode === "existing" ? selectedCustomerId : newCustomerName.trim()
-  );
+  const isCustomerChosen = !!selectedCustomerId || customerMode === "new";
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {/* 1. КЛІЄНТ */}
-      <div className="space-y-3">
+      <div className="space-y-3 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-850/40">
         <div className="flex items-center justify-between">
           <label className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-[11px] font-black">
-              1
-            </span>
             <User className="w-4 h-4 text-emerald-600" />
             <span>Клієнт *</span>
           </label>
 
-          <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-medium">
+          <div className="flex bg-slate-200/70 dark:bg-slate-800 p-0.5 rounded-lg text-xs font-semibold">
             <button
               type="button"
               onClick={() => setCustomerMode("existing")}
-              className={`px-2.5 py-1 rounded-md transition-all ${
+              className={`px-3 py-1 rounded-md transition-all ${
                 customerMode === "existing"
-                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-semibold"
+                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
               }`}
             >
@@ -292,86 +307,104 @@ function CreateOrderForm({
               type="button"
               onClick={() => {
                 setCustomerMode("new");
-                if (newCustomerAddress && !deliveryAddress) {
-                  setDeliveryAddress(newCustomerAddress);
-                }
+                setSelectedCustomerId(null);
               }}
-              className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1 ${
+              className={`px-3 py-1 rounded-md transition-all ${
                 customerMode === "new"
-                  ? "bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs font-semibold"
+                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
               }`}
             >
-              <UserPlus className="w-3 h-3" />
-              <span>Новий клієнт</span>
+              + Новий клієнт
             </button>
           </div>
         </div>
 
         {customerMode === "existing" ? (
           <div className="space-y-2">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Пошук клієнта за ім'ям, телефоном або адресою..."
-                value={customerSearch}
-                onChange={(e) => setCustomerSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
-              />
-            </div>
-
-            <div className="max-h-36 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-800/50">
-              {filteredCustomers.length === 0 ? (
-                <div className="p-3 text-xs text-center text-slate-500">
-                  Клієнтів не знайдено. Скористайтеся вкладкою &ldquo;Новий клієнт&rdquo;.
+            {selectedCustomer ? (
+              <div className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-slate-800 border border-emerald-500/50 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center text-emerald-700 font-bold text-xs">
+                    {selectedCustomer.name[0]?.toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span>{selectedCustomer.name}</span>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      {selectedCustomer.phone} • {selectedCustomer.address}
+                    </div>
+                  </div>
                 </div>
-              ) : (
-                filteredCustomers.map((cust) => {
-                  const isSelected = selectedCustomerId === cust.id;
-                  return (
-                    <button
-                      type="button"
-                      key={cust.id}
-                      onClick={() => handleSelectCustomer(cust)}
-                      className={`w-full text-left p-2.5 flex items-center justify-between text-xs transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 ${
-                        isSelected ? "bg-emerald-50 dark:bg-emerald-950/30" : ""
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <div className="font-semibold text-slate-900 dark:text-white truncate">
-                          {cust.name}
-                        </div>
-                        <div className="text-slate-500 truncate">{cust.phone} • {cust.address}</div>
-                      </div>
-                      {isSelected && <Check className="w-4 h-4 text-emerald-600 shrink-0 ml-2" />}
-                    </button>
-                  );
-                })
-              )}
-            </div>
 
-            {selectedCustomer && (
-              <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-900 dark:text-emerald-200 flex items-center justify-between">
-                <span>
-                  Обрано клієнта: <strong>{selectedCustomer.name}</strong> ({selectedCustomer.phone})
-                </span>
-                <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold">
-                  {selectedCustomer.orders_count || 0} замовлень раніше
-                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCustomerId(null);
+                    setDeliveryAddress("");
+                    setDistanceKm("");
+                    setRouteResult(null);
+                  }}
+                  className="text-xs text-slate-400 hover:text-rose-600 underline font-semibold px-2 py-1"
+                >
+                  Змінити
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Швидкий пошук замовника за ім'ям, телефоном або адресою..."
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                  />
+                </div>
+
+                <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                  {filteredCustomers.length === 0 ? (
+                    <div className="p-3 text-center text-xs text-slate-400">
+                      Клієнтів не знайдено. Перейдіть у вкладку &quot;+ Новий клієнт&quot;.
+                    </div>
+                  ) : (
+                    filteredCustomers.map((c) => (
+                      <div
+                        key={c.id}
+                        onClick={() => handleSelectCustomer(c)}
+                        className="p-2.5 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer flex items-center justify-between transition-colors"
+                      >
+                        <div>
+                          <div className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                            {c.name}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            {c.phone} • {c.address}
+                          </div>
+                        </div>
+                        <span className="text-[11px] text-emerald-600 font-bold">
+                          Обрати
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
             <div>
-              <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+              <label className="text-xs text-slate-600 dark:text-slate-400">
                 ПІБ / Назва *
               </label>
               <input
                 type="text"
                 required
-                placeholder="Іван Коваль"
+                placeholder="Іванчук Петро"
                 value={newCustomerName}
                 onChange={(e) => setNewCustomerName(e.target.value)}
                 className="mt-1 w-full px-3 py-1.5 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-1 focus:ring-emerald-500"
@@ -379,11 +412,11 @@ function CreateOrderForm({
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+              <label className="text-xs text-slate-600 dark:text-slate-400">
                 Телефон *
               </label>
               <input
-                type="text"
+                type="tel"
                 required
                 placeholder="+380..."
                 value={newCustomerPhone}
@@ -393,8 +426,8 @@ function CreateOrderForm({
             </div>
 
             <div className="sm:col-span-2">
-              <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                Основна адреса клієнта *
+              <label className="text-xs text-slate-600 dark:text-slate-400">
+                Основна адреса *
               </label>
               <input
                 type="text"
@@ -414,7 +447,7 @@ function CreateOrderForm({
         )}
       </div>
 
-      {/* 2. АДРЕСА ВИВАНТАЖЕННЯ (З'являється / доступна після вибору клієнта) */}
+      {/* 2. АДРЕСА ВИВАНТАЖЕННЯ */}
       <div
         className={`space-y-2 p-3.5 rounded-xl border transition-all ${
           isCustomerChosen
@@ -424,9 +457,6 @@ function CreateOrderForm({
       >
         <div className="flex items-center justify-between">
           <label className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-[11px] font-black">
-              2
-            </span>
             <Truck className="w-4 h-4 text-emerald-600" />
             <span>Адреса вивантаження *</span>
           </label>
@@ -434,7 +464,7 @@ function CreateOrderForm({
           {isCalculatingRoute && (
             <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-medium">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>Визначення маршруту від складу...</span>
+              <span>Розрахунок маршруту від складу...</span>
             </span>
           )}
         </div>
@@ -489,9 +519,6 @@ function CreateOrderForm({
       {/* 3. ДАТА ЗАМОВЛЕННЯ */}
       <div className="space-y-1.5">
         <label className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-          <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-[11px] font-black">
-            3
-          </span>
           <CalendarIcon className="w-4 h-4 text-emerald-600" />
           <span>Дата замовлення *</span>
         </label>
@@ -504,104 +531,68 @@ function CreateOrderForm({
             className="w-full sm:w-72 px-3.5 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
           />
         </div>
-        <p className="text-[11px] text-slate-500">
-          Замовлення буде зафіксовано на цю дату в календарі відвантажень та базі даних
-        </p>
       </div>
 
-      {/* 4. КІЛЬКІСТЬ ТОНН & 5. ЦІНА (Централізований вибір та автоматична ціна) */}
+      {/* 4. КІЛЬКІСТЬ ТОНН & 5. ЦІНА ЗА ТОННУ (Звичайні числові поля без 0 за замовчуванням) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* 4. Кількість тонн */}
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <label className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-[11px] font-black">
-              4
-            </span>
             <span>Кількість тонн *</span>
           </label>
-
-          <div className="grid grid-cols-3 gap-2">
-            {TONNAGE_OPTIONS.map((opt) => {
-              const isSelected = quantity === opt.tons;
-              return (
-                <button
-                  type="button"
-                  key={opt.tons}
-                  onClick={() => handleSelectTons(opt.tons, opt.price)}
-                  className={`p-2.5 rounded-xl border text-center transition-all flex flex-col items-center justify-center relative ${
-                    isSelected
-                      ? "border-emerald-600 bg-emerald-600 text-white shadow-md ring-2 ring-emerald-500/20"
-                      : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-500/50 text-slate-800 dark:text-slate-200"
-                  }`}
-                >
-                  {opt.badge && (
-                    <span
-                      className={`absolute -top-2 right-1 text-[9px] font-extrabold px-1.5 py-0.2 rounded-full ${
-                        isSelected
-                          ? "bg-amber-400 text-slate-950 font-bold"
-                          : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                      }`}
-                    >
-                      {opt.badge}
-                    </span>
-                  )}
-                  <span className="text-sm font-black">{opt.label}</span>
-                  <span
-                    className={`text-[11px] font-bold mt-0.5 ${
-                      isSelected ? "text-emerald-100" : "text-emerald-600 dark:text-emerald-400"
-                    }`}
-                  >
-                    {formatCurrency(opt.price)}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {quantity === "" && (
-            <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
-              Оберіть кількість торфобрикету (1, 2 або 3 т)
-            </p>
-          )}
-        </div>
-
-        {/* 5. Ціна замовлення */}
-        <div className="space-y-2">
-          <label className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-[11px] font-black">
-              5
-            </span>
-            <DollarSign className="w-4 h-4 text-emerald-600" />
-            <span>Ціна товару (грн) *</span>
-          </label>
-
           <div className="relative">
             <input
-              type="text"
-              readOnly
-              placeholder="Ціна підставиться автоматично"
-              value={unitPrice === "" ? "" : `${formatCurrency(unitPrice)}`}
-              className="w-full px-3.5 py-2.5 text-sm font-black rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-850 text-slate-900 dark:text-white cursor-default focus:outline-none"
+              type="number"
+              step="any"
+              min="0.01"
+              required
+              placeholder="Наприклад: 1, 1.5, 2, 3, 5..."
+              value={quantity === "" ? "" : quantity}
+              onChange={(e) =>
+                setQuantity(e.target.value === "" ? "" : parseFloat(e.target.value))
+              }
+              className="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
             />
+            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+              т
+            </span>
           </div>
+        </div>
 
-          <p className="text-[11px] text-slate-500">
-            Встановлюється автоматично відповідно до обраного обсягу
-          </p>
+        {/* 5. Ціна за тонну (грн) */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+            <DollarSign className="w-4 h-4 text-emerald-600" />
+            <span>Ціна за тонну (грн) *</span>
+          </label>
+          <div className="relative">
+            <input
+              type="number"
+              step="any"
+              min="0"
+              required
+              placeholder="Наприклад: 12000, 12500..."
+              value={unitPrice === "" ? "" : unitPrice}
+              onChange={(e) =>
+                setUnitPrice(e.target.value === "" ? "" : parseFloat(e.target.value))
+              }
+              className="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+            />
+            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+              грн/т
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* 6. КІЛОМЕТРАЖ ДОСТАВКИ & 7. ВАРТІСТЬ ДОСТАВКИ */}
+      {/* 6. КІЛОМЕТРАЖ ДОСТАВКИ & 7. ЦІНА ДОСТАВКИ ЗА КМ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* 6. Кілометраж доставки */}
+        {/* 6. Кілометраж доставки (км) */}
         <div className="space-y-1.5">
           <label className="text-sm font-bold text-slate-900 dark:text-white flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-[11px] font-black">
-                6
-              </span>
               <Navigation className="w-4 h-4 text-emerald-600" />
-              <span>Кілометраж доставки</span>
+              <span>Кілометраж доставки (км)</span>
             </span>
 
             {routeResult?.duration_min && (
@@ -615,14 +606,18 @@ function CreateOrderForm({
           <div className="relative">
             <input
               type="number"
-              step="0.1"
+              step="any"
               min="0"
-              placeholder="Розраховується за адресою..."
+              placeholder={
+                isCalculatingRoute
+                  ? "Розраховується за адресою..."
+                  : "Наприклад: 60.1"
+              }
               value={distanceKm === "" ? "" : distanceKm}
               onChange={(e) =>
                 setDistanceKm(e.target.value === "" ? "" : parseFloat(e.target.value))
               }
-              className="w-full px-3.5 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+              className="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
             />
             <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
               км
@@ -630,64 +625,35 @@ function CreateOrderForm({
           </div>
         </div>
 
-        {/* 7. Вартість доставки */}
+        {/* 7. Ціна доставки за км (грн/км) */}
         <div className="space-y-1.5">
           <label className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-[11px] font-black">
-              7
-            </span>
             <Truck className="w-4 h-4 text-emerald-600" />
-            <span>Вартість доставки (грн)</span>
+            <span>Ціна доставки за км (грн/км)</span>
           </label>
 
           <div className="relative">
             <input
               type="number"
-              step="10"
+              step="any"
               min="0"
-              placeholder="Вкажіть суму доставки..."
-              value={deliveryPrice === "" ? "" : deliveryPrice}
+              placeholder="Наприклад: 350, 500..."
+              value={deliveryPricePerKm === "" ? "" : deliveryPricePerKm}
               onChange={(e) =>
-                setDeliveryPrice(e.target.value === "" ? "" : parseFloat(e.target.value))
+                setDeliveryPricePerKm(
+                  e.target.value === "" ? "" : parseFloat(e.target.value)
+                )
               }
-              className="w-full px-3.5 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+              className="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
             />
             <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-              грн
+              грн/км
             </span>
-          </div>
-
-          <div className="flex gap-1.5 pt-0.5">
-            <button
-              type="button"
-              onClick={() => setDeliveryPrice(0)}
-              className={`px-2 py-0.5 text-[10px] font-bold rounded-lg border transition-colors ${
-                deliveryPrice === 0
-                  ? "bg-emerald-600 text-white border-emerald-600"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
-              }`}
-            >
-              Самовивіз (0 грн)
-            </button>
-            {[350, 500, 750].map((cost) => (
-              <button
-                type="button"
-                key={cost}
-                onClick={() => setDeliveryPrice(cost)}
-                className={`px-2 py-0.5 text-[10px] font-bold rounded-lg border transition-colors ${
-                  deliveryPrice === cost
-                    ? "bg-emerald-600 text-white border-emerald-600"
-                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
-                }`}
-              >
-                {cost} грн
-              </button>
-            ))}
           </div>
         </div>
       </div>
 
-      {/* Примітки */}
+      {/* Примітки до замовлення */}
       <div>
         <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
           <FileText className="w-4 h-4 text-slate-400" />
@@ -702,53 +668,59 @@ function CreateOrderForm({
         />
       </div>
 
-      {/* 8. АВТОМАТИЧНИЙ РОЗРАХУНОК ЗАМОВЛЕННЯ (В САМОМУ НИЗУ ВІКНА) */}
-      <div className="p-4.5 rounded-2xl bg-gradient-to-br from-emerald-50 via-teal-50/60 to-emerald-100/40 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-slate-900 border border-emerald-300 dark:border-emerald-800/70 shadow-xs space-y-3">
+      {/* 8. ПІДСУМОК ЗАМОВЛЕННЯ (В САМОМУ НИЗУ ВІКНА) */}
+      <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-50 via-teal-50/60 to-emerald-100/40 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-slate-900 border border-emerald-300 dark:border-emerald-800/70 shadow-xs space-y-3">
         <div className="flex items-center justify-between text-xs font-extrabold text-emerald-900 dark:text-emerald-300 uppercase tracking-wider">
           <div className="flex items-center gap-2">
-            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-[11px] font-black">
-              8
-            </span>
             <Calculator className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
-            <span>Автоматичний розрахунок замовлення:</span>
+            <span>Підсумок замовлення:</span>
           </div>
           <span className="text-[10px] normal-case font-medium text-emerald-700 dark:text-emerald-400">
-            Оновлюється автоматично
+            {isComplete ? "Розраховано повністю" : "Миттєвий розрахунок"}
           </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Вартість товару */}
           <div className="p-2.5 rounded-xl bg-white/80 dark:bg-slate-900/60 border border-emerald-200/70 dark:border-emerald-900/60">
             <div className="text-[11px] text-slate-500 dark:text-slate-400">Вартість товару:</div>
             <div className="text-base font-extrabold text-slate-900 dark:text-white mt-0.5">
-              {hasProductPrice ? formatCurrency(productTotal) : "— грн"}
+              {hasProductCalculation ? formatCurrency(productTotal) : "— грн"}
             </div>
             <div className="text-[10px] text-slate-400">
-              {quantity ? `${quantity} т торфобрикету` : "Обсяг не вибрано"}
+              {hasProductCalculation
+                ? `${quantity} т × ${formatCurrency(unitPrice)}`
+                : "Введіть тонни та ціну"}
             </div>
           </div>
 
+          {/* Вартість доставки */}
           <div className="p-2.5 rounded-xl bg-white/80 dark:bg-slate-900/60 border border-emerald-200/70 dark:border-emerald-900/60">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">Доставка:</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">Вартість доставки:</div>
             <div className="text-base font-extrabold text-slate-900 dark:text-white mt-0.5">
-              {typeof deliveryPrice === "number"
-                ? deliveryPrice === 0
-                  ? "Безкоштовно (0 грн)"
-                  : formatCurrency(deliveryPrice)
+              {hasDeliveryCalculation ? formatCurrency(deliveryTotal) : "— грн"}
+            </div>
+            <div className="text-[10px] text-slate-400">
+              {hasDeliveryCalculation
+                ? `${distanceKm} км × ${formatCurrency(deliveryPricePerKm)}/км`
+                : "Введіть км та тариф"}
+            </div>
+          </div>
+
+          {/* Загальна сума */}
+          <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-sm flex flex-col justify-between">
+            <div className="text-[11px] font-semibold text-emerald-100">Загальна сума:</div>
+            <div className="text-xl font-black text-white mt-0.5">
+              {hasProductCalculation || hasDeliveryCalculation
+                ? formatCurrency(totalAmount)
                 : "— грн"}
             </div>
-            <div className="text-[10px] text-slate-400">
-              {distanceKm ? `${distanceKm} км від складу` : "Відстань не вказана"}
-            </div>
-          </div>
-
-          <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-sm flex flex-col justify-between">
-            <div className="text-[11px] font-semibold text-emerald-100">Разом до сплати:</div>
-            <div className="text-xl font-black text-white mt-0.5">
-              {hasProductPrice ? formatCurrency(totalAmount) : "— грн"}
-            </div>
             <div className="text-[10px] text-emerald-100/90 font-medium">
-              Товар + доставка
+              {hasProductCalculation && hasDeliveryCalculation
+                ? "Товар + доставка"
+                : hasProductCalculation
+                ? "Тільки товар"
+                : "Введіть дані для розрахунку"}
             </div>
           </div>
         </div>
@@ -778,8 +750,10 @@ function CreateOrderForm({
             <>
               <Sparkles className="w-4 h-4" />
               <span>
-                Оформити замовлення
-                {hasProductPrice ? ` • ${formatCurrency(totalAmount)}` : ""}
+                Створити замовлення
+                {hasProductCalculation || hasDeliveryCalculation
+                  ? ` • ${formatCurrency(totalAmount)}`
+                  : ""}
               </span>
             </>
           )}
@@ -802,7 +776,7 @@ export function CreateOrderModal({
       isOpen={isOpen}
       onClose={onClose}
       title="Оформлення нового замовлення"
-      description="Введіть дані клієнта, адресу розвантаження та оберіть кількість тонн"
+      description="Введіть дані клієнта, адресу розвантаження, параметри замовлення та розрахунок"
       maxWidth="2xl"
     >
       <CreateOrderForm
