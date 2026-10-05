@@ -11,6 +11,7 @@ import {
   OrderStatus,
   OrderUpdatePayload,
   ProductSpec,
+  RouteCalculationResult,
   SystemSettings,
   WarehouseInfo,
 } from "@/types";
@@ -288,6 +289,21 @@ export const api = {
     },
     getWarehouse: async (): Promise<WarehouseInfo> => {
       const res = await request<WarehouseInfo>("/warehouse");
+      return res.data;
+    },
+  },
+
+  // Navigation & Routing
+  navigation: {
+    calculateRoute: async (payload: {
+      address?: string;
+      latitude?: number | null;
+      longitude?: number | null;
+    }): Promise<RouteCalculationResult> => {
+      const res = await request<RouteCalculationResult>("/navigation/calculate-route", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
       return res.data;
     },
   },

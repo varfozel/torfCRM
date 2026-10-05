@@ -10,15 +10,16 @@ import {
   MapPin,
   Calendar,
   BarChart3,
-  Boxes,
   Settings,
   LogOut,
   Flame,
   X,
   PlusCircle,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { api } from "@/lib/api";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -33,13 +34,17 @@ const NAV_ITEMS = [
   { href: "/map", label: "Карта доставок", icon: MapPin },
   { href: "/calendar", label: "Календар", icon: Calendar },
   { href: "/analytics", label: "Аналітика", icon: BarChart3 },
-  { href: "/products", label: "Товари", icon: Boxes },
   { href: "/settings", label: "Налаштування", icon: Settings },
 ];
 
 export function Sidebar({ isOpen, onClose, onOpenCreateOrder }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const { data: warehouse } = useQuery({
+    queryKey: ["warehouse"],
+    queryFn: () => api.settings.getWarehouse(),
+    staleTime: 1000 * 60 * 10,
+  });
 
   return (
     <>
@@ -136,10 +141,10 @@ export function Sidebar({ isOpen, onClose, onOpenCreateOrder }: SidebarProps) {
         <div className="px-4 py-2.5 mx-3 mb-3 rounded-xl bg-slate-900/80 border border-slate-800/80 text-xs text-slate-400">
           <div className="flex items-center gap-1.5 font-medium text-slate-300">
             <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-            <span className="truncate">Маневицький склад</span>
+            <span className="truncate">{warehouse?.name || "Склад торфу"}</span>
           </div>
           <div className="text-[11px] text-slate-400 truncate mt-0.5">
-            смт Маневичі, Волинь
+            {warehouse?.address || "Адреса складу з .env"}
           </div>
         </div>
 

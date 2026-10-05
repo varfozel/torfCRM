@@ -29,12 +29,15 @@ export interface Order {
   delivery_address: string;
   delivery_latitude?: number | null;
   delivery_longitude?: number | null;
+  distance_km?: number | null;
+  order_date?: string;
   status: OrderStatus;
   notes?: string | null;
   delivery_started_at?: string | null;
   delivery_completed_at?: string | null;
   created_at: string;
   waze_url?: string | null;
+  google_maps_url?: string | null;
   customer?: Customer | null;
 }
 
@@ -47,6 +50,8 @@ export interface OrderCreatePayload {
   delivery_address?: string;
   delivery_latitude?: number | null;
   delivery_longitude?: number | null;
+  distance_km?: number | null;
+  order_date?: string;
   notes?: string | null;
 }
 
@@ -57,8 +62,22 @@ export interface OrderUpdatePayload {
   delivery_address?: string;
   delivery_latitude?: number | null;
   delivery_longitude?: number | null;
+  distance_km?: number | null;
+  order_date?: string;
   status?: OrderStatus;
   notes?: string | null;
+}
+
+export interface RouteCalculationResult {
+  success: boolean;
+  distance_km?: number | null;
+  duration_min?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  waze_url?: string | null;
+  google_maps_url?: string | null;
+  is_estimated?: boolean;
+  message?: string | null;
 }
 
 export interface CustomerCreatePayload {

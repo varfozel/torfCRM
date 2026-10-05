@@ -18,7 +18,7 @@ async def test_customer_service_crud_and_search(db_session: AsyncSession):
         CustomerCreate(
             name="Олександр Ковальчук",
             phone="+380671234567",
-            address="смт Маневичі, вул. Залізнична 10",
+            address="м. Луцьк, вул. Залізнична 10",
             notes="Дзвонити перед виїздом",
         ),
     )
@@ -103,7 +103,7 @@ async def test_order_free_delivery(db_session: AsyncSession):
         CustomerCreate(
             name="Ольга",
             phone="+380670001122",
-            address="смт Маневичі",
+            address="м. Луцьк",
         ),
     )
 
@@ -127,7 +127,7 @@ async def test_order_validation_errors(db_session: AsyncSession):
         CustomerCreate(
             name="Тест Валідація",
             phone="+380509990011",
-            address="смт Маневичі",
+            address="м. Луцьк",
         ),
     )
 
@@ -148,7 +148,7 @@ async def test_order_validation_errors(db_session: AsyncSession):
             quantity=Decimal("10.00"),
             unit_price=Decimal("200.00"),
             delivery_price=Decimal("-50.00"),
-            delivery_address="смт Маневичі",
+            delivery_address="м. Луцьк",
         )
         await order_service.create_order(db_session, invalid_order)
 
@@ -168,7 +168,7 @@ async def test_order_validation_errors(db_session: AsyncSession):
             quantity=Decimal("0.00"),
             unit_price=Decimal("200.00"),
             delivery_price=Decimal("100.00"),
-            delivery_address="смт Маневичі",
+            delivery_address="м. Луцьк",
         )
         await order_service.create_order(db_session, invalid_qty)
 
@@ -188,7 +188,7 @@ async def test_order_update_recalculates_totals(db_session: AsyncSession):
         CustomerCreate(
             name="Григорій",
             phone="+380671239876",
-            address="смт Маневичі",
+            address="м. Луцьк",
         ),
     )
     order = await order_service.create_order(
@@ -267,7 +267,7 @@ async def test_order_cancellation(db_session: AsyncSession):
         CustomerCreate(
             name="Андрій",
             phone="+380678889900",
-            address="смт Маневичі",
+            address="м. Луцьк",
         ),
     )
     order = await order_service.create_order(
@@ -294,7 +294,7 @@ def test_navigation_service():
     )
     assert url_coords == "https://waze.com/ul?ll=51.298100,25.553200&navigate=yes"
 
-    url_addr = navigation_service.generate_waze_url(address="смт Маневичі, Волинь")
+    url_addr = navigation_service.generate_waze_url(address="м. Луцьк, Волинь")
     assert "https://waze.com/ul?q=" in url_addr
     assert "navigate=yes" in url_addr
 

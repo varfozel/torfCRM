@@ -104,7 +104,7 @@ export default function DashboardPage() {
             Огляд діяльності
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Актуальні дані складу торфобрикету смт Маневичі
+            Актуальні дані обліку та відвантажень торфобрикету
           </p>
         </div>
 

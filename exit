@@ -1,0 +1,296 @@
+warning: in the working copy of 'frontend/src/app/products/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/orders/CreateOrderModal.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/orders/EditOrderModal.tsx', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/.env.example b/.env.example[m
+[1mindex e54b87d..382c5c1 100644[m
+[1m--- a/.env.example[m
+[1m+++ b/.env.example[m
+[36m@@ -24,8 +24,8 @@[m [mTELEGRAM_BOT_TOKEN=123456789:ABCDefGhIJKlmNoPQRsTUVwxyZ_example[m
+ # Optional: comma-separated list of Telegram user IDs permitted to use the bot. Leave empty to allow any user.[m
+ TELEGRAM_ALLOWED_USER_IDS=[m
+ [m
+[31m-# Warehouse Origin Configuration (Fixed dispatch location)[m
+[31m-WAREHOUSE_NAME="Маневицький склад торфу"[m
+[31m-WAREHOUSE_ADDRESS="смт Маневичі, Волинська область, Україна"[m
+[31m-WAREHOUSE_LAT=51.298100[m
+[31m-WAREHOUSE_LON=25.553200[m
+[32m+[m[32m# Warehouse Origin Configuration (Configure your warehouse address and coordinates here)[m
+[32m+[m[32mWAREHOUSE_NAME="Склад торфу"[m
+[32m+[m[32mWAREHOUSE_ADDRESS="Волинська область, Україна"[m
+[32m+[m[32mWAREHOUSE_LAT=50.747200[m
+[32m+[m[32mWAREHOUSE_LON=25.325400[m
+[1mdiff --git a/app/api/v1/__init__.py b/app/api/v1/__init__.py[m
+[1mindex f6c7b96..630d5ec 100644[m
+[1m--- a/app/api/v1/__init__.py[m
+[1m+++ b/app/api/v1/__init__.py[m
+[36m@@ -18,7 +18,41 @@[m [mrouter.include_router(products_router)[m
+ router.include_router(settings_router)[m
+ [m
+ [m
+[32m+[m[32mfrom decimal import Decimal[m
+[32m+[m[32mfrom typing import Optional[m
+[32m+[m[32mfrom pydantic import BaseModel[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass CalculateRouteRequest(BaseModel):[m
+[32m+[m[32m    address: Optional[str] = None[m
+[32m+[m[32m    latitude: Optional[Decimal] = None[m
+[32m+[m[32m    longitude: Optional[Decimal] = None[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass CalculateRouteResponse(BaseModel):[m
+[32m+[m[32m    success: bool[m
+[32m+[m[32m    distance_km: Optional[Decimal] = None[m
+[32m+[m[32m    duration_min: Optional[int] = None[m
+[32m+[m[32m    latitude: Optional[Decimal] = None[m
+[32m+[m[32m    longitude: Optional[Decimal] = None[m
+[32m+[m[32m    waze_url: Optional[str] = None[m
+[32m+[m[32m    google_maps_url: Optional[str] = None[m
+[32m+[m[32m    is_estimated: Optional[bool] = False[m
+[32m+[m[32m    message: Optional[str] = None[m
+[32m+[m
+[32m+[m
+ @router.get("/warehouse", tags=["Navigation & Warehouse"])[m
+ async def get_warehouse_location():[m
+     """Отримати централізовані координати та адресу базового складу."""[m
+     return navigation_service.warehouse_info[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.post("/navigation/calculate-route", response_model=CalculateRouteResponse, tags=["Navigation & Warehouse"])[m
+[32m+[m[32masync def calculate_delivery_route(req: CalculateRouteRequest):[m
+[32m+[m[32m    """Розрахувати маршрут доставки, відстань у км та час від складу до адреси клієнта."""[m
+[32m+[m[32m    return await navigation_service.calculate_route([m
+[32m+[m[32m        address=req.address,[m
+[32m+[m[32m        latitude=req.latitude,[m
+[32m+[m[32m        longitude=req.longitude,[m
+[32m+[m[32m    )[m
+[41m+[m
+[1mdiff --git a/app/config.py b/app/config.py[m
+[1mindex 432deff..c788151 100644[m
+[1m--- a/app/config.py[m
+[1m+++ b/app/config.py[m
+[36m@@ -31,14 +31,14 @@[m [mclass Settings(BaseSettings):[m
+     # Manager Web Authentication[m
+     MANAGER_USERNAME: str = "admin"[m
+     MANAGER_PASSWORD: str = "peat_manager_2026"[m
+[31m-    JWT_SECRET_KEY: str = "peat_crm_secret_jwt_key_manevychi_2026"[m
+[32m+[m[32m    JWT_SECRET_KEY: str = "peat_crm_secret_jwt_key_default_2026"[m
+     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days[m
+ [m
+[31m-    # Warehouse Origin Location (Centralized config)[m
+[31m-    WAREHOUSE_NAME: str = "Маневицький склад торфу"[m
+[31m-    WAREHOUSE_ADDRESS: str = "смт Маневичі, Волинська область, Україна"[m
+[31m-    WAREHOUSE_LAT: float = 51.298100[m
+[31m-    WAREHOUSE_LON: float = 25.553200[m
+[32m+[m[32m    # Warehouse Origin Location (Loaded from .env / environment)[m
+[32m+[m[32m    WAREHOUSE_NAME: str = "Склад торфу"[m
+[32m+[m[32m    WAREHOUSE_ADDRESS: str = ""[m
+[32m+[m[32m    WAREHOUSE_LAT: float = 50.747200[m
+[32m+[m[32m    WAREHOUSE_LON: float = 25.325400[m
+ [m
+     @property[m
+     def allowed_telegram_ids(self) -> Set[int]:[m
+[1mdiff --git a/app/models/order.py b/app/models/order.py[m
+[1mindex e98ff4b..38a3757 100644[m
+[1m--- a/app/models/order.py[m
+[1m+++ b/app/models/order.py[m
+[36m@@ -1,8 +1,9 @@[m
+[31m-from datetime import datetime[m
+[32m+[m[32mfrom datetime import date, datetime[m
+ from decimal import Decimal[m
+ from enum import Enum[m
+ from typing import TYPE_CHECKING, Optional[m
+ from sqlalchemy import ([m
+[32m+[m[32m    Date,[m
+     DateTime,[m
+     ForeignKey,[m
+     Numeric,[m
+[36m@@ -57,6 +58,15 @@[m [mclass Order(Base):[m
+     delivery_address: Mapped[str] = mapped_column(Text, nullable=False)[m
+     delivery_latitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(9, 6), nullable=True)[m
+     delivery_longitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(9, 6), nullable=True)[m
+[32m+[m[32m    distance_km: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)[m
+[32m+[m
+[32m+[m[32m    order_date: Mapped[date] = mapped_column([m
+[32m+[m[32m        Date,[m
+[32m+[m[32m        default=func.current_date(),[m
+[32m+[m[32m        server_default=func.current_date(),[m
+[32m+[m[32m        nullable=False,[m
+[32m+[m[32m        index=True,[m
+[32m+[m[32m    )[m
+ [m
+     status: Mapped[str] = mapped_column([m
+         String(30),[m
+[1mdiff --git a/app/repositories/order_repo.py b/app/repositories/order_repo.py[m
+[1mindex 9d9641d..1b17cd6 100644[m
+[1m--- a/app/repositories/order_repo.py[m
+[1m+++ b/app/repositories/order_repo.py[m
+[36m@@ -44,9 +44,11 @@[m [mclass OrderRepository:[m
+         if customer_id:[m
+             stmt = stmt.where(Order.customer_id == customer_id)[m
+         if date_from:[m
+[31m-            stmt = stmt.where(Order.created_at >= date_from)[m
+[32m+[m[32m            d_from = date_from.date() if isinstance(date_from, datetime) else date_from[m
+[32m+[m[32m            stmt = stmt.where(or_(Order.order_date >= d_from, Order.created_at >= date_from))[m
+         if date_to:[m
+[31m-            stmt = stmt.where(Order.created_at <= date_to)[m
+[32m+[m[32m            d_to = date_to.date() if isinstance(date_to, datetime) else date_to[m
+[32m+[m[32m            stmt = stmt.where(or_(Order.order_date <= d_to, Order.created_at <= date_to))[m
+         if search_query and search_query.strip():[m
+             term = f"%{search_query.strip()}%"[m
+             # Join with customer to search across customer name, phone, order id, or address[m
+[1mdiff --git a/app/schemas/order.py b/app/schemas/order.py[m
+[1mindex 7f2224a..6b9a2bd 100644[m
+[1m--- a/app/schemas/order.py[m
+[1m+++ b/app/schemas/order.py[m
+[36m@@ -1,7 +1,7 @@[m
+[31m-from datetime import datetime[m
+[32m+[m[32mfrom datetime import date, datetime[m
+ from decimal import Decimal[m
+ from typing import Optional[m
+[31m-from pydantic import BaseModel, ConfigDict, Field, computed_field[m
+[32m+[m[32mfrom pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator[m
+ [m
+ from app.models.order import DEFAULT_PRODUCT_NAME, OrderStatus[m
+ from app.schemas.customer import CustomerResponse[m
+[36m@@ -27,6 +27,8 @@[m [mclass OrderBase(BaseModel):[m
+     )[m
+     delivery_latitude: Optional[Decimal] = Field(None, ge=-90, le=90, description="Широта місця вивантаження")[m
+     delivery_longitude: Optional[Decimal] = Field(None, ge=-180, le=180, description="Довгота місця вивантаження")[m
+[32m+[m[32m    distance_km: Optional[Decimal] = Field(None, ge=0, description="Кілометраж доставки від складу (км)")[m
+[32m+[m[32m    order_date: Optional[date] = Field(None, description="Дата замовлення (за замовчуванням поточна дата)")[m
+     notes: Optional[str] = Field(None, description="Примітки до доставки/замовлення")[m
+ [m
+ [m
+[36m@@ -41,6 +43,8 @@[m [mclass OrderUpdate(BaseModel):[m
+     delivery_address: Optional[str] = None[m
+     delivery_latitude: Optional[Decimal] = Field(None, ge=-90, le=90)[m
+     delivery_longitude: Optional[Decimal] = Field(None, ge=-180, le=180)[m
+[32m+[m[32m    distance_km: Optional[Decimal] = Field(None, ge=0)[m
+[32m+[m[32m    order_date: Optional[date] = None[m
+     status: Optional[OrderStatus] = None[m
+     notes: Optional[str] = None[m
+ [m
+[36m@@ -56,6 +60,8 @@[m [mclass OrderResponse(BaseModel):[m
+     delivery_address: str[m
+     delivery_latitude: Optional[Decimal] = None[m
+     delivery_longitude: Optional[Decimal] = None[m
+[32m+[m[32m    distance_km: Optional[Decimal] = None[m
+[32m+[m[32m    order_date: Optional[date] = None[m
+     status: OrderStatus[m
+     notes: Optional[str] = None[m
+     delivery_started_at: Optional[datetime] = None[m
+[36m@@ -66,7 +72,14 @@[m [mclass OrderResponse(BaseModel):[m
+ [m
+     @computed_field[m
+     def product_total(self) -> Decimal:[m
+[31m-        """Сума вартості товару (quantity * unit_price)."""[m
+[31m-        return (self.quantity * self.unit_price).quantize(Decimal("0.01"))[m
+[32m+[m[32m        """Сума вартості товару (total_amount - delivery_price)."""[m
+[32m+[m[32m        return (self.total_amount - self.delivery_price).quantize(Decimal("0.01"))[m
+[32m+[m
+[32m+[m[32m    @model_validator(mode="after")[m
+[32m+[m[32m    def ensure_order_date(self) -> "OrderResponse":[m
+[32m+[m[32m        if self.order_date is None and self.created_at is not None:[m
+[32m+[m[32m            self.order_date = self.created_at.date()[m
+[32m+[m[32m        return self[m
+ [m
+     model_config = ConfigDict(from_attributes=True)[m
+[41m+[m
+[1mdiff --git a/app/services/navigation.py b/app/services/navigation.py[m
+[1mindex 275ee3d..9e33be5 100644[m
+[1m--- a/app/services/navigation.py[m
+[1m+++ b/app/services/navigation.py[m
+[36m@@ -111,7 +111,117 @@[m [mclass NavigationService:[m
+                 except Exception:[m
+                     continue[m
+ [m
+[31m-        return None, None[m
+[32m+[m[32m    @staticmethod[m
+[32m+[m[32m    def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:[m
+[32m+[m[32m        """Calculate great-circle distance between two points on Earth in kilometers."""[m
+[32m+[m[32m        import math[m
+[32m+[m[32m        R = 6371.0[m
+[32m+[m[32m        dlat = math.radians(lat2 - lat1)[m
+[32m+[m[32m        dlon = math.radians(lon2 - lon1)[m
+[32m+[m[32m        a = ([m
+[32m+[m[32m            math.sin(dlat / 2) ** 2[m
+[32m+[m[32m            + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2[m
+[32m+[m[32m        )[m
+[32m+[m[32m        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))[m
+[32m+[m[32m        return R * c[m
+[32m+[m
+[32m+[m[32m    async def calculate_route([m
+[32m+[m[32m        self,[m
+[32m+[m[32m        address: Optional[str] = None,[m
+[32m+[m[32m        latitude: Optional[Decimal | float] = None,[m
+[32m+[m[32m        longitude: Optional[Decimal | float] = None,[m
+[32m+[m[32m    ) -> dict:[m
+[32m+[m[32m        """[m
+[32m+[m[32m        Calculate actual road distance in kilometers and estimated driving duration[m
+[32m+[m[32m        from the warehouse to destination using OSRM routing and Nominatim geocoding.[m
+[32m+[m[32m        """[m
+[32m+[m[32m        dest_lat: Optional[float] = float(latitude) if latitude is not None else None[m
+[32m+[m[32m        dest_lon: Optional[float] = float(longitude) if longitude is not None else None[m
+[32m+[m
+[32m+[m[32m        # 1. Try parsing coordinates from address string if coordinates are missing[m
+[32m+[m[32m        if (dest_lat is None or dest_lon is None) and address:[m
+[32m+[m[32m            plat, plon = self.parse_coordinates(address)[m
+[32m+[m[32m            if plat is not None and plon is not None:[m
+[32m+[m[32m                dest_lat = float(plat)[m
+[32m+[m[32m                dest_lon = float(plon)[m
+[32m+[m
+[32m+[m[32m        # 2. Geocode address via OpenStreetMap Nominatim if coordinates not yet found[m
+[32m+[m[32m        if (dest_lat is None or dest_lon is None) and address and address.strip():[m
+[32m+[m[32m            import httpx[m
+[32m+[m[32m            try:[m
+[32m+[m[32m                async with httpx.AsyncClient(timeout=5.0) as client:[m
+[32m+[m[32m                    geo_resp = await client.get([m
+[32m+[m[32m                        "https://nominatim.openstreetmap.org/search",[m
+[32m+[m[32m                        params={"q": address.strip(), "format": "json", "limit": 1, "countrycodes": "ua"},[m
+[32m+[m[32m                        headers={"User-Agent": "PeatCRM/1.0"},[m
+[32m+[m[32m                    )[m
+[32m+[m[32m                    if geo_resp.status_code == 200:[m
+[32m+[m[32m                        geo_data = geo_resp.json()[m
+[32m+[m[32m                        if geo_data and len(geo_data) > 0:[m
+[32m+[m[32m                            dest_lat = float(geo_data[0]["lat"])[m
+[32m+[m[32m                            dest_lon = float(geo_data[0]["lon"])[m
+[32m+[m[32m            except Exception:[m
+[32m+[m[32m                pass[m
+[32m+[m
+[32m+[m[32m        if dest_lat is None or dest_lon is None:[m
+[32m+[m[32m            return {[m
+[32m+[m[32m                "success": False,[m
+[32m+[m[32m                "message": "Не вдалося визначити координати адреси. Перевірте адресу або введіть кілометраж вручну.",[m
+[32m+[m[32m                "distance_km": None,[m
+[32m+[m[32m                "duration_min": None,[m
+[32m+[m[32m                "latitude": None,[m
+[32m+[m[32m                "longitude": None,[m
+[32m+[m[32m                "waze_url": self.generate_waze_url(address=address) if address else None,[m
+[32m+[m[32m            }[m
+[32m+[m
+[32m+[m[32m        wh_lat = float(self.settings.WAREHOUSE_LAT)[m
+[32m+[m[32m        wh_lon = float(self.settings.WAREHOUSE_LON)[m
+[32m+[m
+[32m+[m[32m        # 3. Request actual road driving route from OSRM[m
+[32m+[m[32m        import httpx[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            osrm_url = f"https://router.project-osrm.org/route/v1/driving/{wh_lon},{wh_lat};{dest_lon},{dest_lat}?overview=false"[m
+[32m+[m[32m            async with httpx.AsyncClient(timeout=6.0) as client:[m
+[32m+[m[32m                resp = await client.get(osrm_url)[m
+[32m+[m[32m                if resp.status_code == 200:[m
+[32m+[m[32m                    route_data = resp.json()[m
+[32m+[m[32m                    if route_data.get("code") == "Ok" and route_data.get("routes"):[m
+[32m+[m[32m                        route = route_data["routes"][0][m
+[32m+[m[32m                        dist_meters = float(route.get("distance", 0))[m
+[32m+[m[32m                        dur_sec = float(route.get("duration", 0))[m
+[32m+[m[32m                        distance_km = round(dist_meters / 1000.0, 1)[m
+[32m+[m[32m                        duration_min = max(1, round(dur_sec / 60.0))[m
+[32m+[m
+[32m+[m[32m                        return {[m
+[32m+[m[32m                            "success": True,[m
+[32m+[m[32m                            "distance_km": Decimal(str(distance_km)),[m
+[32m+[m[32m                            "duration_min": duration_min,[m
+[32m+[m[32m                            "latitude": Decimal(str(round(dest_lat, 6))),[m
+[32m+[m[32m                            "longitude": Decimal(str(round(dest_lon, 6))),[m
+[32m+[m[32m                            "waze_url": self.generate_waze_

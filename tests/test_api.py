@@ -33,7 +33,7 @@ async def test_customer_api_crud(client: AsyncClient):
     payload = {
         "name": "ФОП Шевченко",
         "phone": "+380679998877",
-        "address": "смт Маневичі, вул. Незалежності 14",
+        "address": "м. Луцьк, вул. Незалежності 14",
         "latitude": 51.298500,
         "longitude": 25.554000,
         "notes": "Постійний замовник",
@@ -131,7 +131,7 @@ async def test_order_api_lifecycle_and_totals(client: AsyncClient):
 async def test_order_api_negative_validations(client: AsyncClient):
     cust_resp = await client.post(
         "/api/v1/customers/",
-        json={"name": "Тест Помилки", "phone": "+380671112233", "address": "смт Маневичі"},
+        json={"name": "Тест Помилки", "phone": "+380671112233", "address": "м. Ковель"},
     )
     customer_id = cust_resp.json()["id"]
 
@@ -157,3 +157,56 @@ async def test_order_api_negative_validations(client: AsyncClient):
         },
     )
     assert neg_qty.status_code in [400, 422]
+
+
+@pytest.mark.asyncio
+async def test_order_date_and_distance_api(client: AsyncClient):
+    # Create customer
+    cust_resp = await client.post(
+        "/api/v1/customers/",
+        json={"name": "Олександр", "phone": "+380509990011", "address": "м. Луцьк"},
+    )
+    customer_id = cust_resp.json()["id"]
+
+    # Create order with explicit order_date and distance_km
+    order_resp = await client.post(
+        "/api/v1/orders/",
+        json={
+            "customer_id": customer_id,
+            "quantity": 2.0,
+            "unit_price": 12500.0,
+            "delivery_price": 500.0,
+            "delivery_address": "м. Луцьк, вул. Рівненська 45",
+            "order_date": "2026-10-15",
+            "distance_km": 42.5,
+        },
+    )
+    assert order_resp.status_code == 201
+    data = order_resp.json()
+    assert data["order_date"] == "2026-10-15"
+    assert float(data["distance_km"]) == 42.5
+    assert float(data["total_amount"]) == 13000.0  # 12500 tier + 500 delivery
+
+    # Update order_date
+    patch_resp = await client.patch(
+        f"/api/v1/orders/{data['id']}",
+        json={"order_date": "2026-10-20", "distance_km": 45.0},
+    )
+    assert patch_resp.status_code == 200
+    patched = patch_resp.json()
+    assert patched["order_date"] == "2026-10-20"
+    assert float(patched["distance_km"]) == 45.0
+
+
+@pytest.mark.asyncio
+async def test_calculate_route_api(client: AsyncClient):
+    resp = await client.post(
+        "/api/v1/navigation/calculate-route",
+        json={"latitude": 50.7472, "longitude": 25.3254},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["distance_km"] is not None
+    assert "waze_url" in data
+

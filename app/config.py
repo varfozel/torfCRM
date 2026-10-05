@@ -31,14 +31,14 @@ class Settings(BaseSettings):
     # Manager Web Authentication
     MANAGER_USERNAME: str = "admin"
     MANAGER_PASSWORD: str = "peat_manager_2026"
-    JWT_SECRET_KEY: str = "peat_crm_secret_jwt_key_manevychi_2026"
+    JWT_SECRET_KEY: str = "peat_crm_secret_jwt_key_default_2026"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
-    # Warehouse Origin Location (Centralized config)
-    WAREHOUSE_NAME: str = "Маневицький склад торфу"
-    WAREHOUSE_ADDRESS: str = "смт Маневичі, Волинська область, Україна"
-    WAREHOUSE_LAT: float = 51.298100
-    WAREHOUSE_LON: float = 25.553200
+    # Warehouse Origin Location (Loaded from .env / environment)
+    WAREHOUSE_NAME: str = "Склад торфу"
+    WAREHOUSE_ADDRESS: str = ""
+    WAREHOUSE_LAT: float = 50.747200
+    WAREHOUSE_LON: float = 25.325400
 
     @property
     def allowed_telegram_ids(self) -> Set[int]:

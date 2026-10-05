@@ -71,7 +71,7 @@ def test_render_order_card():
         id=5,
         name="Тарас Григорович",
         phone="+380501112233",
-        address="смт Маневичі",
+        address="м. Луцьк",
     )
     order = Order(
         id=42,
@@ -82,7 +82,7 @@ def test_render_order_card():
         unit_price=Decimal("200.00"),
         delivery_price=Decimal("350.00"),
         total_amount=Decimal("2350.00"),
-        delivery_address="смт Маневичі, вул. Шкільна 2",
+        delivery_address="м. Луцьк, вул. Шкільна 2",
         delivery_latitude=Decimal("51.298100"),
         delivery_longitude=Decimal("25.553200"),
         status=OrderStatus.NEW.value,
@@ -107,7 +107,7 @@ def test_render_order_summary():
         "quantity": "10.00",
         "unit_price": "200.00",
         "delivery_price": "350.00",
-        "delivery_address": "смт Маневичі, вул. Польова 10",
+        "delivery_address": "м. Луцьк, вул. Польова 10",
         "notes": "Дзвонити водію",
     }
     summary = render_order_summary(data)
@@ -117,7 +117,7 @@ def test_render_order_summary():
     assert "2000.00 грн" in summary
     assert "350.00 грн" in summary
     assert "2350.00 грн" in summary
-    assert "смт Маневичі, вул. Польова 10" in summary
+    assert "м. Луцьк, вул. Польова 10" in summary
     assert "Дзвонити водію" in summary
 
 

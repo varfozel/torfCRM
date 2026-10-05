@@ -89,7 +89,7 @@ export default function MapPage() {
             <span>Географія та маршрути доставок</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Інтерактивна карта точок розвантаження торфобрикету зі складу в смт Маневичі
+            Інтерактивна карта точок розвантаження торфобрикету зі складу
           </p>
         </div>
 
@@ -137,7 +137,7 @@ export default function MapPage() {
             <div className="flex items-center gap-4">
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                <span>Склад (Маневичі)</span>
+                <span>{warehouse?.name || "Базовий склад"}</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />

@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from app.models.order import DEFAULT_PRODUCT_NAME, OrderStatus
 from app.schemas.customer import CustomerResponse
@@ -27,6 +27,8 @@ class OrderBase(BaseModel):
     )
     delivery_latitude: Optional[Decimal] = Field(None, ge=-90, le=90, description="Широта місця вивантаження")
     delivery_longitude: Optional[Decimal] = Field(None, ge=-180, le=180, description="Довгота місця вивантаження")
+    distance_km: Optional[Decimal] = Field(None, ge=0, description="Кілометраж доставки від складу (км)")
+    order_date: Optional[date] = Field(None, description="Дата замовлення (за замовчуванням поточна дата)")
     notes: Optional[str] = Field(None, description="Примітки до доставки/замовлення")
 
 
@@ -41,6 +43,8 @@ class OrderUpdate(BaseModel):
     delivery_address: Optional[str] = None
     delivery_latitude: Optional[Decimal] = Field(None, ge=-90, le=90)
     delivery_longitude: Optional[Decimal] = Field(None, ge=-180, le=180)
+    distance_km: Optional[Decimal] = Field(None, ge=0)
+    order_date: Optional[date] = None
     status: Optional[OrderStatus] = None
     notes: Optional[str] = None
 
@@ -56,6 +60,8 @@ class OrderResponse(BaseModel):
     delivery_address: str
     delivery_latitude: Optional[Decimal] = None
     delivery_longitude: Optional[Decimal] = None
+    distance_km: Optional[Decimal] = None
+    order_date: Optional[date] = None
     status: OrderStatus
     notes: Optional[str] = None
     delivery_started_at: Optional[datetime] = None
@@ -66,7 +72,14 @@ class OrderResponse(BaseModel):
 
     @computed_field
     def product_total(self) -> Decimal:
-        """Сума вартості товару (quantity * unit_price)."""
-        return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
+        """Сума вартості товару (total_amount - delivery_price)."""
+        return (self.total_amount - self.delivery_price).quantize(Decimal("0.01"))
+
+    @model_validator(mode="after")
+    def ensure_order_date(self) -> "OrderResponse":
+        if self.order_date is None and self.created_at is not None:
+            self.order_date = self.created_at.date()
+        return self
 
     model_config = ConfigDict(from_attributes=True)
+

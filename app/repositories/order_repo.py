@@ -44,9 +44,11 @@ class OrderRepository:
         if customer_id:
             stmt = stmt.where(Order.customer_id == customer_id)
         if date_from:
-            stmt = stmt.where(Order.created_at >= date_from)
+            d_from = date_from.date() if isinstance(date_from, datetime) else date_from
+            stmt = stmt.where(or_(Order.order_date >= d_from, Order.created_at >= date_from))
         if date_to:
-            stmt = stmt.where(Order.created_at <= date_to)
+            d_to = date_to.date() if isinstance(date_to, datetime) else date_to
+            stmt = stmt.where(or_(Order.order_date <= d_to, Order.created_at <= date_to))
         if search_query and search_query.strip():
             term = f"%{search_query.strip()}%"
             # Join with customer to search across customer name, phone, order id, or address

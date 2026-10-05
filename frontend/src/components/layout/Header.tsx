@@ -2,8 +2,10 @@
 
 import React from "react";
 import { Menu, Plus, MapPin } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { uk } from "date-fns/locale";
+import { api } from "@/lib/api";
 
 interface HeaderProps {
   title: string;
@@ -21,6 +23,11 @@ export function Header({
   actions,
 }: HeaderProps) {
   const todayFormatted = format(new Date(), "d MMMM yyyy", { locale: uk });
+  const { data: warehouse } = useQuery({
+    queryKey: ["warehouse"],
+    queryFn: () => api.settings.getWarehouse(),
+    staleTime: 1000 * 60 * 10,
+  });
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-4 sm:px-8 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
@@ -55,7 +62,12 @@ export function Header({
         {/* Warehouse chip */}
         <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300">
           <MapPin className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          <span>Маневичі склад (51.2981, 25.5532)</span>
+          <span>
+            {warehouse?.name || "Склад торфу"}
+            {warehouse?.latitude && warehouse?.longitude
+              ? ` (${warehouse.latitude}, ${warehouse.longitude})`
+              : ""}
+          </span>
         </div>
 
         {actions}

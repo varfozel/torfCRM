@@ -103,9 +103,10 @@ export function DeliveryMap({
   warehouse,
   onSelectOrder,
   className = "h-[500px]",
-  center = [51.2981, 25.5532], // Default: Manevychi
+  center,
   zoom = 10,
 }: DeliveryMapProps) {
+  const mapCenter: [number, number] = center || (warehouse ? [warehouse.latitude, warehouse.longitude] : [50.7472, 25.3254]);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
@@ -115,7 +116,7 @@ export function DeliveryMap({
 
     if (!mapInstanceRef.current) {
       const map = L.map(mapContainerRef.current, {
-        center,
+        center: mapCenter,
         zoom,
         zoomControl: true,
       });

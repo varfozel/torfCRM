@@ -115,7 +115,7 @@ async def test_orders_search_and_planning(client: AsyncClient):
         json={
             "name": "Оксана Мельник",
             "phone": "+380671239876",
-            "address": "смт Маневичі, пров. Тихий 3",
+            "address": "м. Луцьк, пров. Тихий 3",
         },
     )
     cust_id = cust_resp.json()["id"]

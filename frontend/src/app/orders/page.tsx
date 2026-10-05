@@ -312,12 +312,12 @@ function OrdersContent() {
                   <th className="p-3.5 pl-5">№</th>
                   <th className="p-3.5">Клієнт</th>
                   <th className="p-3.5">Обсяг (т)</th>
-                  <th className="p-3.5">Ціна за 1т</th>
-                  <th className="p-3.5">Доставка</th>
+                  <th className="p-3.5">Товар</th>
+                  <th className="p-3.5">Доставка / Відстань</th>
                   <th className="p-3.5">Загальна сума</th>
                   <th className="p-3.5">Статус</th>
                   <th className="p-3.5">Адреса вивантаження</th>
-                  <th className="p-3.5">Створено</th>
+                  <th className="p-3.5">Дата замовлення</th>
                   <th className="p-3.5 pr-5 text-right">Дії</th>
                 </tr>
               </thead>
@@ -344,12 +344,19 @@ function OrdersContent() {
                       {ord.quantity} т
                     </td>
 
-                    <td className="p-3.5 text-slate-600 dark:text-slate-400">
-                      {formatCurrency(ord.unit_price)}
+                    <td className="p-3.5 text-slate-700 dark:text-slate-300 font-medium">
+                      {formatCurrency(ord.product_total ?? ord.unit_price)}
                     </td>
 
                     <td className="p-3.5 text-slate-600 dark:text-slate-400">
-                      {ord.delivery_price === 0 ? "Самовивіз" : formatCurrency(ord.delivery_price)}
+                      <div>
+                        {ord.delivery_price === 0 ? "Самовивіз" : formatCurrency(ord.delivery_price)}
+                      </div>
+                      {ord.distance_km && (
+                        <div className="text-[10px] text-slate-400">
+                          {ord.distance_km} км
+                        </div>
+                      )}
                     </td>
 
                     <td className="p-3.5 font-extrabold text-emerald-600 dark:text-emerald-400 text-sm">
@@ -364,8 +371,13 @@ function OrdersContent() {
                       {ord.delivery_address}
                     </td>
 
-                    <td className="p-3.5 text-slate-500 whitespace-nowrap">
-                      {formatDateTime(ord.created_at)}
+                    <td className="p-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                      <div className="font-semibold text-slate-900 dark:text-white">
+                        {ord.order_date || ord.created_at.split("T")[0]}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        ств: {formatDateTime(ord.created_at)}
+                      </div>
                     </td>
 
                     <td className="p-3.5 pr-5 text-right whitespace-nowrap">

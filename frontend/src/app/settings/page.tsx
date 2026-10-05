@@ -73,14 +73,14 @@ export default function SettingsPage() {
           <div>
             <span className="text-slate-400 font-medium block">Назва підприємства / складу:</span>
             <strong className="text-sm text-slate-800 dark:text-slate-200 mt-0.5 block">
-              {warehouse?.name || "Маневицький склад торфу"}
+              {warehouse?.name || "Склад торфу"}
             </strong>
           </div>
 
           <div>
             <span className="text-slate-400 font-medium block">Фактична адреса:</span>
             <strong className="text-sm text-slate-800 dark:text-slate-200 mt-0.5 block">
-              {warehouse?.address || "смт Маневичі, Волинська область, Україна"}
+              {warehouse?.address || "Адреса складу з .env"}
             </strong>
           </div>
 

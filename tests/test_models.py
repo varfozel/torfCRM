@@ -30,7 +30,7 @@ async def test_create_order_with_delivery_price_and_single_product(db_session: A
     customer = Customer(
         name="Іван Петренко",
         phone="+380671112233",
-        address="смт Маневичі, вул. Лісова 5",
+        address="м. Луцьк, вул. Лісова 5",
     )
     db_session.add(customer)
     await db_session.commit()
@@ -49,7 +49,7 @@ async def test_create_order_with_delivery_price_and_single_product(db_session: A
         unit_price=unit_price,
         delivery_price=delivery_price,
         total_amount=total_amount,
-        delivery_address="смт Маневичі, вул. Лісова 5",
+        delivery_address="м. Луцьк, вул. Лісова 5",
         delivery_latitude=Decimal("51.299100"),
         delivery_longitude=Decimal("25.554300"),
         status=OrderStatus.NEW.value,
@@ -75,7 +75,7 @@ async def test_create_order_with_free_delivery(db_session: AsyncSession):
     customer = Customer(
         name="Петро Сидоренко",
         phone="+380672223344",
-        address="смт Маневичі",
+        address="м. Луцьк",
     )
     db_session.add(customer)
     await db_session.commit()
@@ -86,7 +86,7 @@ async def test_create_order_with_free_delivery(db_session: AsyncSession):
         unit_price=Decimal("250.00"),
         delivery_price=Decimal("0.00"),
         total_amount=Decimal("1250.00"),
-        delivery_address="смт Маневичі",
+        delivery_address="м. Луцьк",
     )
     db_session.add(order)
     await db_session.commit()

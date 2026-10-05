@@ -30,11 +30,13 @@ import { formatCurrency } from "@/lib/utils";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { OrderDetailModal } from "@/components/orders/OrderDetailModal";
 import { CreateOrderModal } from "@/components/orders/CreateOrderModal";
+import { EditOrderModal } from "@/components/orders/EditOrderModal";
 
 export default function CalendarPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   // Fetch orders
@@ -45,13 +47,14 @@ export default function CalendarPage() {
 
   const orders = useMemo(() => data?.orders || [], [data?.orders]);
 
-  // Group orders by date (YYYY-MM-DD)
+  // Group orders by order_date (fallback to created_at)
   const ordersByDate = useMemo(() => {
     const map = new Map<string, Order[]>();
     orders.forEach((o) => {
       try {
-        const d = parseISO(o.created_at);
-        const key = format(d, "yyyy-MM-dd");
+        const key = o.order_date
+          ? o.order_date
+          : format(parseISO(o.created_at), "yyyy-MM-dd");
         if (!map.has(key)) map.set(key, []);
         map.get(key)!.push(o);
       } catch {}
@@ -287,9 +290,23 @@ export default function CalendarPage() {
         order={selectedOrder}
         isOpen={!!selectedOrder}
         onClose={() => setSelectedOrder(null)}
+        onEdit={(ord) => {
+          setSelectedOrder(null);
+          setEditingOrder(ord);
+        }}
       />
 
-      <CreateOrderModal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} />
+      <CreateOrderModal
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        initialOrderDate={selectedDate}
+      />
+
+      <EditOrderModal
+        order={editingOrder}
+        isOpen={!!editingOrder}
+        onClose={() => setEditingOrder(null)}
+      />
     </div>
   );
 }

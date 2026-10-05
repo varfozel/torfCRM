@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
 from sqlalchemy import (
+    Date,
     DateTime,
     ForeignKey,
     Numeric,
@@ -57,6 +58,15 @@ class Order(Base):
     delivery_address: Mapped[str] = mapped_column(Text, nullable=False)
     delivery_latitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(9, 6), nullable=True)
     delivery_longitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(9, 6), nullable=True)
+    distance_km: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
+
+    order_date: Mapped[date] = mapped_column(
+        Date,
+        default=func.current_date(),
+        server_default=func.current_date(),
+        nullable=False,
+        index=True,
+    )
 
     status: Mapped[str] = mapped_column(
         String(30),

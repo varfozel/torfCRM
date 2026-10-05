@@ -50,11 +50,11 @@ async def test_migration_compatibility_with_old_orders():
         # 2. Insert historical customer & order
         await conn.execute(text("""
             INSERT INTO customers (id, name, phone, address)
-            VALUES (1, 'Іван Старий', '+380501112233', 'смт Маневичі');
+            VALUES (1, 'Іван Старий', '+380501112233', 'м. Луцьк');
         """))
         await conn.execute(text("""
             INSERT INTO orders (id, customer_id, product_name, quantity, unit_price, total_amount, delivery_address)
-            VALUES (1, 1, 'Торф фрезерний старий', 10.00, 200.00, 2000.00, 'смт Маневичі');
+            VALUES (1, 1, 'Торф фрезерний старий', 10.00, 200.00, 2000.00, 'м. Луцьк');
         """))
 
     # 3. Simulate migration 002: ALTER TABLE orders ADD COLUMN delivery_price NUMERIC(10, 2) DEFAULT 0.00
@@ -63,10 +63,22 @@ async def test_migration_compatibility_with_old_orders():
             ALTER TABLE orders ADD COLUMN delivery_price NUMERIC(10, 2) DEFAULT 0.00 NOT NULL;
         """))
 
-    # 4. Verify existing order data is preserved intact
+    # 4. Simulate migration 003: ALTER TABLE orders ADD COLUMN order_date DATE; ADD COLUMN distance_km NUMERIC(10, 2)
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE orders ADD COLUMN order_date DATE;
+        """))
+        await conn.execute(text("""
+            UPDATE orders SET order_date = '2026-10-05' WHERE order_date IS NULL;
+        """))
+        await conn.execute(text("""
+            ALTER TABLE orders ADD COLUMN distance_km NUMERIC(10, 2);
+        """))
+
+    # 5. Verify existing order data is preserved intact
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession)
     async with session_factory() as session:
-        result = await session.execute(text("SELECT id, product_name, quantity, unit_price, delivery_price, total_amount FROM orders WHERE id = 1"))
+        result = await session.execute(text("SELECT id, product_name, quantity, unit_price, delivery_price, total_amount, order_date, distance_km FROM orders WHERE id = 1"))
         row = result.mappings().one()
 
         assert row["id"] == 1
@@ -75,5 +87,8 @@ async def test_migration_compatibility_with_old_orders():
         assert Decimal(str(row["unit_price"])) == Decimal("200.00")
         assert Decimal(str(row["delivery_price"])) == Decimal("0.00")
         assert Decimal(str(row["total_amount"])) == Decimal("2000.00")
+        assert row["order_date"] is not None
+        assert row["distance_km"] is None
 
     await engine.dispose()
+

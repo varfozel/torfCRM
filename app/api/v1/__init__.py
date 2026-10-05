@@ -18,7 +18,41 @@ router.include_router(products_router)
 router.include_router(settings_router)
 
 
+from decimal import Decimal
+from typing import Optional
+from pydantic import BaseModel
+
+
+class CalculateRouteRequest(BaseModel):
+    address: Optional[str] = None
+    latitude: Optional[Decimal] = None
+    longitude: Optional[Decimal] = None
+
+
+class CalculateRouteResponse(BaseModel):
+    success: bool
+    distance_km: Optional[Decimal] = None
+    duration_min: Optional[int] = None
+    latitude: Optional[Decimal] = None
+    longitude: Optional[Decimal] = None
+    waze_url: Optional[str] = None
+    google_maps_url: Optional[str] = None
+    is_estimated: Optional[bool] = False
+    message: Optional[str] = None
+
+
 @router.get("/warehouse", tags=["Navigation & Warehouse"])
 async def get_warehouse_location():
     """Отримати централізовані координати та адресу базового складу."""
     return navigation_service.warehouse_info
+
+
+@router.post("/navigation/calculate-route", response_model=CalculateRouteResponse, tags=["Navigation & Warehouse"])
+async def calculate_delivery_route(req: CalculateRouteRequest):
+    """Розрахувати маршрут доставки, відстань у км та час від складу до адреси клієнта."""
+    return await navigation_service.calculate_route(
+        address=req.address,
+        latitude=req.latitude,
+        longitude=req.longitude,
+    )
+

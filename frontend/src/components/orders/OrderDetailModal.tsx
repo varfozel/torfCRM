@@ -116,7 +116,11 @@ export function OrderDetailModal({
       isOpen={isOpen}
       onClose={onClose}
       title={`Замовлення #${order.id}`}
-      description={`Оформлено: ${formatDateTime(order.created_at)}`}
+      description={
+        order.order_date
+          ? `Дата замовлення: ${order.order_date} • Оформлено: ${formatDateTime(order.created_at)}`
+          : `Оформлено: ${formatDateTime(order.created_at)}`
+      }
       maxWidth="2xl"
     >
       <div className="space-y-6">
@@ -184,17 +188,10 @@ export function OrderDetailModal({
         <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
           <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
             <Package className="w-4 h-4 text-emerald-600" />
-            <span>Параметри продукції та фінанси</span>
+            <span>Параметри замовлення та фінанси</span>
           </h4>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-            <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
-              <span className="text-[11px] text-slate-500">Продукція:</span>
-              <p className="font-bold text-slate-900 dark:text-white truncate">
-                {order.product_name}
-              </p>
-            </div>
-
             <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
               <span className="text-[11px] text-slate-500">Кількість:</span>
               <p className="font-bold text-slate-900 dark:text-white">
@@ -203,14 +200,21 @@ export function OrderDetailModal({
             </div>
 
             <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
-              <span className="text-[11px] text-slate-500">Ціна за 1 т:</span>
+              <span className="text-[11px] text-slate-500">Ціна товару:</span>
               <p className="font-bold text-slate-900 dark:text-white">
                 {formatCurrency(order.unit_price)}
               </p>
             </div>
 
             <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
-              <span className="text-[11px] text-slate-500">Вартість доставки:</span>
+              <span className="text-[11px] text-slate-500">Кілометраж:</span>
+              <p className="font-bold text-slate-900 dark:text-white">
+                {order.distance_km ? `${order.distance_km} км` : "—"}
+              </p>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
+              <span className="text-[11px] text-slate-500">Доставка:</span>
               <p className="font-bold text-slate-900 dark:text-white">
                 {formatCurrency(order.delivery_price)}
               </p>
@@ -219,10 +223,10 @@ export function OrderDetailModal({
 
           <div className="flex justify-between items-center p-3 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900 text-xs">
             <span className="text-slate-600 dark:text-slate-400">
-              Вартість товару ({order.quantity} т × {formatCurrency(order.unit_price)}):
+              Вартість товару ({order.quantity} т):
             </span>
             <span className="font-bold text-slate-900 dark:text-white">
-              {formatCurrency(order.product_total ?? order.quantity * order.unit_price)}
+              {formatCurrency(order.product_total ?? order.total_amount - order.delivery_price)}
             </span>
           </div>
         </div>
@@ -238,6 +242,11 @@ export function OrderDetailModal({
             <p className="text-sm font-semibold text-slate-900 dark:text-white">
               {order.delivery_address}
             </p>
+            {order.distance_km && (
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-0.5 font-medium">
+                Відстань від складу: {order.distance_km} км
+              </p>
+            )}
             {order.delivery_latitude && order.delivery_longitude && (
               <p className="text-xs text-slate-500 mt-0.5">
                 Координати: {order.delivery_latitude}, {order.delivery_longitude}

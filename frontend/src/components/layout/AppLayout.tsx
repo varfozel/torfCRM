@@ -77,11 +77,6 @@ export function AppLayout({ children }: AppLayoutProps) {
           title: "Аналітика та звіти",
           subtitle: "Фінансові підсумки, тоннаж та динаміка збуту",
         };
-      case "/products":
-        return {
-          title: "Каталог продукції",
-          subtitle: "Специфікація торфобрикету, фасування та базові ціни",
-        };
       case "/settings":
         return {
           title: "Налаштування системи",
