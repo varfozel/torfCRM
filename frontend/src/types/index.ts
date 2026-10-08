@@ -25,8 +25,13 @@ export interface Order {
   unit_price: number;
   delivery_price_per_km?: number | null;
   delivery_price: number;
+  delivery_amount?: number;
   total_amount: number;
+  calculated_total_amount?: number;
+  final_total_amount?: number;
+  is_total_manual?: boolean;
   product_total?: number;
+  product_amount?: number;
   quantity_tons?: number;
   price_per_ton?: number;
   total_price?: number;
@@ -54,6 +59,10 @@ export interface OrderCreatePayload {
   delivery_price?: number;
   quantity_tons?: number;
   price_per_ton?: number;
+  is_total_manual?: boolean;
+  manual_total_amount?: number | null;
+  final_total_amount?: number | null;
+  calculated_total_amount?: number;
   delivery_address?: string;
   delivery_latitude?: number | null;
   delivery_longitude?: number | null;
@@ -69,6 +78,10 @@ export interface OrderUpdatePayload {
   delivery_price?: number;
   quantity_tons?: number;
   price_per_ton?: number;
+  is_total_manual?: boolean;
+  manual_total_amount?: number | null;
+  final_total_amount?: number | null;
+  calculated_total_amount?: number;
   delivery_address?: string;
   delivery_latitude?: number | null;
   delivery_longitude?: number | null;

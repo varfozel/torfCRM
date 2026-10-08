@@ -18,6 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
+  Edit3,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Order, OrderStatus } from "@/types";
@@ -365,8 +366,28 @@ function OrdersContent() {
                       )}
                     </td>
 
-                    <td className="p-3.5 font-extrabold text-emerald-600 dark:text-emerald-400 text-sm">
-                      {formatCurrency(ord.total_amount)}
+                    <td className="p-3.5 font-extrabold text-emerald-600 dark:text-emerald-400 text-sm whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <span>{formatCurrency(ord.total_amount)}</span>
+                        {ord.is_total_manual && (
+                          <span
+                            title={
+                              ord.calculated_total_amount != null
+                                ? `Встановлено вручну (автоматично: ${formatCurrency(ord.calculated_total_amount)})`
+                                : "Встановлено вручну"
+                            }
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300/80 dark:border-amber-700 cursor-help"
+                          >
+                            <Edit3 className="w-2.5 h-2.5" />
+                            <span>Вручну</span>
+                          </span>
+                        )}
+                      </div>
+                      {ord.is_total_manual && ord.calculated_total_amount != null && (
+                        <div className="text-[10px] font-normal text-slate-400 dark:text-slate-500">
+                          авто: {formatCurrency(ord.calculated_total_amount)}
+                        </div>
+                      )}
                     </td>
 
                     <td className="p-3.5">

@@ -33,13 +33,31 @@ class OrderBase(BaseModel):
         ge=0,
         description="Вартість доставки в грн (синонім delivery_price)",
     )
+    is_total_manual: Optional[bool] = Field(
+        default=False,
+        description="Ознака ручного встановлення фінальної суми",
+    )
+    manual_total_amount: Optional[Decimal] = Field(
+        default=None,
+        ge=0,
+        description="Вручну встановлена фінальна сума замовлення (грн)",
+    )
+    final_total_amount: Optional[Decimal] = Field(
+        default=None,
+        ge=0,
+        description="Вручну встановлена фінальна сума замовлення (синонім manual_total_amount)",
+    )
+    calculated_total_amount: Optional[Decimal] = Field(
+        default=None,
+        description="Автоматично розрахована сума (визначається виключно бекендом)",
+    )
     total_amount: Optional[Decimal] = Field(
         default=None,
-        description="Загальна сума (ігнорується бекендом - завжди перераховується за єдиною формулою)",
+        description="Загальна сума (визначається бекендом на основі is_total_manual)",
     )
     total_price: Optional[Decimal] = Field(
         default=None,
-        description="Загальна сума (синонім total_amount, ігнорується бекендом)",
+        description="Загальна сума (синонім total_amount)",
     )
     product_amount: Optional[Decimal] = Field(
         default=None,
@@ -69,6 +87,8 @@ class OrderBase(BaseModel):
                 data["unit_price"] = data["price_per_ton"]
             if data.get("delivery_price") is None and data.get("delivery_amount") is not None:
                 data["delivery_price"] = data["delivery_amount"]
+            if data.get("manual_total_amount") is None and data.get("final_total_amount") is not None:
+                data["manual_total_amount"] = data["final_total_amount"]
         return data
 
 
@@ -92,7 +112,11 @@ class OrderUpdate(BaseModel):
     delivery_price_per_km: Optional[Decimal] = Field(None, ge=0, description="Ціна доставки за км (грн/км)")
     delivery_price: Optional[Decimal] = Field(None, ge=0, description="Вартість доставки")
     delivery_amount: Optional[Decimal] = Field(None, ge=0, description="Вартість доставки (синонім delivery_price)")
-    total_amount: Optional[Decimal] = Field(None, description="Загальна сума (ігнорується бекендом - завжди перераховується)")
+    is_total_manual: Optional[bool] = Field(None, description="Ознака ручного встановлення фінальної суми")
+    manual_total_amount: Optional[Decimal] = Field(None, ge=0, description="Вручну встановлена фінальна сума замовлення (грн)")
+    final_total_amount: Optional[Decimal] = Field(None, ge=0, description="Вручну встановлена фінальна сума (синонім manual_total_amount)")
+    calculated_total_amount: Optional[Decimal] = Field(None, description="Розрахована сума (визначається бекендом)")
+    total_amount: Optional[Decimal] = Field(None, description="Загальна сума")
     total_price: Optional[Decimal] = Field(None, description="Загальна сума (синонім total_amount)")
     product_amount: Optional[Decimal] = Field(None, description="Вартість товару (синонім product_total)")
     product_total: Optional[Decimal] = Field(None, description="Вартість товару")
@@ -114,6 +138,8 @@ class OrderUpdate(BaseModel):
                 data["unit_price"] = data["price_per_ton"]
             if data.get("delivery_price") is None and data.get("delivery_amount") is not None:
                 data["delivery_price"] = data["delivery_amount"]
+            if data.get("manual_total_amount") is None and data.get("final_total_amount") is not None:
+                data["manual_total_amount"] = data["final_total_amount"]
         return data
 
 
@@ -126,6 +152,8 @@ class OrderResponse(BaseModel):
     delivery_price_per_km: Optional[Decimal] = None
     delivery_price: Decimal
     total_amount: Decimal
+    calculated_total_amount: Decimal = Decimal("0.00")
+    is_total_manual: bool = False
     delivery_address: str
     delivery_latitude: Optional[Decimal] = None
     delivery_longitude: Optional[Decimal] = None
@@ -138,6 +166,11 @@ class OrderResponse(BaseModel):
     created_at: datetime
     waze_url: Optional[str] = None
     customer: Optional[CustomerResponse] = None
+
+    @computed_field
+    def final_total_amount(self) -> Decimal:
+        """Фінальна сума замовлення (синонім total_amount)."""
+        return self.total_amount
 
     @computed_field
     def quantity_tons(self) -> Decimal:

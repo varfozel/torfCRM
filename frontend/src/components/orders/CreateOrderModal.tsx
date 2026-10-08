@@ -18,6 +18,8 @@ import {
   AlertCircle,
   Clock,
   Sparkles,
+  Edit3,
+  RotateCcw,
 } from "lucide-react";
 import { format } from "date-fns";
 import { Modal } from "@/components/ui/Modal";
@@ -197,6 +199,22 @@ function CreateOrderForm({
     [quantity, unitPrice, distanceKm, deliveryPricePerKm]
   );
 
+  // Manual total amount override state
+  const [isManualTotal, setIsManualTotal] = useState<boolean>(false);
+  const [manualTotalAmount, setManualTotalAmount] = useState<number | "">("");
+
+  const handleEnableManual = () => {
+    setIsManualTotal(true);
+    if (manualTotalAmount === "" && totalAmount > 0) {
+      setManualTotalAmount(totalAmount);
+    }
+  };
+
+  const handleResetToAuto = () => {
+    setIsManualTotal(false);
+    setManualTotalAmount("");
+  };
+
   // Mutation to create order
   const createOrderMutation = useMutation({
     mutationFn: async () => {
@@ -240,6 +258,10 @@ function CreateOrderForm({
         throw new Error("Ціна за тонну не може бути порожньою або від'ємною");
       }
 
+      if (isManualTotal && (manualTotalAmount === "" || Number(manualTotalAmount) < 0)) {
+        throw new Error("Будь ласка, вкажіть коректну фінальну суму замовлення (не менше 0)");
+      }
+
       const payload: OrderCreatePayload = {
         customer_id: finalCustomerId,
         product_name: "Торф'яний брикет",
@@ -254,6 +276,11 @@ function CreateOrderForm({
         delivery_longitude: deliveryLon ? parseFloat(deliveryLon) : null,
         order_date: orderDate,
         notes: notes.trim() || undefined,
+        is_total_manual: isManualTotal,
+        manual_total_amount:
+          isManualTotal && manualTotalAmount !== ""
+            ? Number(manualTotalAmount)
+            : undefined,
       };
 
       return await api.orders.create(payload);
@@ -708,22 +735,97 @@ function CreateOrderForm({
           </div>
 
           {/* Загальна сума */}
-          <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-sm flex flex-col justify-between">
-            <div className="text-[11px] font-semibold text-emerald-100">Загальна сума:</div>
-            <div className="text-xl font-black text-white mt-0.5">
-              {hasProductCalculation || hasDeliveryCalculation
-                ? formatCurrency(totalAmount)
-                : "— грн"}
+          {!isManualTotal ? (
+            <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-sm flex flex-col justify-between">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[11px] font-semibold text-emerald-100">Загальна сума:</span>
+                <button
+                  type="button"
+                  onClick={handleEnableManual}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/20 hover:bg-white/30 text-white transition-colors cursor-pointer"
+                  title="Встановити суму замовлення вручну"
+                >
+                  <Edit3 className="w-2.5 h-2.5" />
+                  <span>Змінити вручну</span>
+                </button>
+              </div>
+              <div className="text-xl font-black text-white mt-0.5">
+                {hasProductCalculation || hasDeliveryCalculation
+                  ? formatCurrency(totalAmount)
+                  : "— грн"}
+              </div>
+              <div className="text-[10px] text-emerald-100/90 font-medium">
+                {hasProductCalculation && hasDeliveryCalculation
+                  ? "Товар + доставка"
+                  : hasProductCalculation
+                  ? "Тільки товар"
+                  : "Введіть дані для розрахунку"}
+              </div>
             </div>
-            <div className="text-[10px] text-emerald-100/90 font-medium">
-              {hasProductCalculation && hasDeliveryCalculation
-                ? "Товар + доставка"
-                : hasProductCalculation
-                ? "Тільки товар"
-                : "Введіть дані для розрахунку"}
+          ) : (
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-amber-600 to-amber-700 text-white shadow-sm flex flex-col justify-between border border-amber-400/40">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[11px] font-semibold text-amber-100">Загальна сума:</span>
+                <span className="px-1.5 py-0.5 text-[9px] font-black tracking-wide uppercase rounded bg-amber-950/50 text-amber-200 border border-amber-300/30">
+                  Встановлено вручну
+                </span>
+              </div>
+              <div className="text-xl font-black text-white mt-0.5">
+                {manualTotalAmount !== "" ? formatCurrency(Number(manualTotalAmount)) : "0,00 грн"}
+              </div>
+              <div className="text-[10px] text-amber-100/90 font-medium">
+                Автоматично: <strong>{formatCurrency(totalAmount)}</strong>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Якщо сума встановлюється вручну — панель введення та скидання */}
+        {isManualTotal && (
+          <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold text-amber-950 dark:text-amber-200">
+                  Фінальна сума (грн) *
+                </label>
+                <span className="text-[10px] font-medium text-amber-800 dark:text-amber-400">
+                  (Автоматично: {formatCurrency(totalAmount)})
+                </span>
+              </div>
+              <div className="relative max-w-xs">
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  required
+                  placeholder="Вкажіть фінальну суму..."
+                  value={manualTotalAmount === "" ? "" : manualTotalAmount}
+                  onChange={(e) =>
+                    setManualTotalAmount(
+                      e.target.value === "" ? "" : parseFloat(e.target.value)
+                    )
+                  }
+                  className="w-full px-3 py-1.5 text-sm font-black text-slate-900 bg-white rounded-lg border border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+                  грн
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={handleResetToAuto}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 hover:bg-amber-100/60 dark:hover:bg-slate-700 transition-colors shadow-xs cursor-pointer"
+                title="Повернути суму, розраховану автоматично"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <span>Повернути автоматичний розрахунок</span>
+              </button>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Footer Actions */}
@@ -751,7 +853,9 @@ function CreateOrderForm({
               <Sparkles className="w-4 h-4" />
               <span>
                 Створити замовлення
-                {hasProductCalculation || hasDeliveryCalculation
+                {isManualTotal && manualTotalAmount !== ""
+                  ? ` • ${formatCurrency(Number(manualTotalAmount))}`
+                  : hasProductCalculation || hasDeliveryCalculation
                   ? ` • ${formatCurrency(totalAmount)}`
                   : ""}
               </span>

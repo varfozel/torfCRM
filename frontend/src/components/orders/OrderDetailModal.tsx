@@ -135,9 +135,21 @@ export function OrderDetailModal({
 
           <div className="text-right">
             <div className="text-xs text-slate-500 dark:text-slate-400">Загальна вартість:</div>
-            <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 leading-tight">
-              {formatCurrency(order.total_amount)}
+            <div className="flex items-center justify-end gap-2 mt-1">
+              <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 leading-tight">
+                {formatCurrency(order.total_amount)}
+              </div>
+              {order.is_total_manual && (
+                <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                  Встановлено вручну
+                </span>
+              )}
             </div>
+            {order.is_total_manual && order.calculated_total_amount != null && (
+              <div className="text-[11px] text-slate-400 mt-0.5">
+                Автоматичний розрахунок: {formatCurrency(order.calculated_total_amount)}
+              </div>
+            )}
           </div>
         </div>
 
@@ -234,6 +246,28 @@ export function OrderDetailModal({
               {formatCurrency(order.product_total ?? order.quantity * order.unit_price)}
             </span>
           </div>
+
+          {order.is_total_manual && (
+            <div className="p-3 rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 text-xs space-y-1">
+              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                <span>Автоматично розрахована сума (товар + доставка):</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                  {formatCurrency(order.calculated_total_amount ?? (Number(order.product_total ?? 0) + Number(order.delivery_price ?? 0)))}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-amber-900 dark:text-amber-300 font-bold pt-1 border-t border-amber-200/60 dark:border-amber-900/40">
+                <span className="flex items-center gap-1.5">
+                  <span>Фінальна сума до сплати:</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-200/80 dark:bg-amber-900 text-amber-900 dark:text-amber-200">
+                    Встановлено вручну
+                  </span>
+                </span>
+                <span className="text-sm font-extrabold text-amber-950 dark:text-amber-100">
+                  {formatCurrency(order.total_amount)}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Delivery Destination & Navigation Card */}

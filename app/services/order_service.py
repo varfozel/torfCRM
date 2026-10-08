@@ -74,14 +74,25 @@ class OrderService:
         if not customer:
             raise ValueError(f"Клієнта з ID {order_in.customer_id} не знайдено.")
 
-        # Розрахунок за єдиною формулою: backend самостійно перераховує total_amount
-        product_amount, delivery_amount, total_amount = calculate_order_financials(
+        # Розрахунок за єдиною формулою: backend самостійно перераховує автоматичну суму
+        product_amount, delivery_amount, auto_total = calculate_order_financials(
             quantity_tons=order_in.quantity,
             price_per_ton=order_in.unit_price,
             distance_km=order_in.distance_km,
             delivery_price_per_km=order_in.delivery_price_per_km,
             delivery_price=order_in.delivery_price,
         )
+
+        # Визначаємо, чи увімкнено ручний режим встановлення суми
+        is_manual = bool(order_in.is_total_manual)
+        manual_amount = order_in.manual_total_amount or order_in.final_total_amount
+        if is_manual and manual_amount is not None:
+            if manual_amount < Decimal("0.00"):
+                raise ValueError("Фінальна сума не може бути від'ємною.")
+            final_total = manual_amount.quantize(Decimal("0.01"))
+        else:
+            final_total = auto_total
+            is_manual = False
 
         # Default delivery address and coordinates to customer's if not explicitly provided
         delivery_address = order_in.delivery_address or customer.address
@@ -108,7 +119,9 @@ class OrderService:
             "unit_price": order_in.unit_price,
             "delivery_price_per_km": order_in.delivery_price_per_km,
             "delivery_price": delivery_amount,
-            "total_amount": total_amount,
+            "calculated_total_amount": auto_total,
+            "total_amount": final_total,
+            "is_total_manual": is_manual,
             "delivery_address": delivery_address.strip(),
             "delivery_latitude": delivery_lat,
             "delivery_longitude": delivery_lon,
@@ -183,11 +196,24 @@ class OrderService:
 
         data = order_update.model_dump(exclude_unset=True)
 
-        # 1. Backend НЕ ПОВИНЕН довіряти total_amount від frontend
-        for untrusted_key in ("total_amount", "total_price", "product_total", "product_amount", "delivery_amount"):
+        # 1. Відкидаємо небезпечні розрахункові поля
+        for untrusted_key in ("total_amount", "total_price", "product_total", "product_amount", "delivery_amount", "calculated_total_amount"):
             data.pop(untrusted_key, None)
 
-        # 2. Нормалізація аліасів
+        # 2. Отримуємо параметри ручного редагування фінальної суми
+        manual_total_val = None
+        if "manual_total_amount" in data:
+            manual_total_val = data.pop("manual_total_amount")
+        elif "final_total_amount" in data:
+            manual_total_val = data.pop("final_total_amount")
+
+        # Визначаємо статус ручного режиму
+        if "is_total_manual" in data:
+            is_manual = bool(data["is_total_manual"])
+        else:
+            is_manual = order.is_total_manual
+
+        # 3. Нормалізація аліасів
         if "quantity_tons" in data and "quantity" not in data:
             data["quantity"] = data.pop("quantity_tons")
         else:
@@ -201,7 +227,7 @@ class OrderService:
         if "status" in data and isinstance(data["status"], OrderStatus):
             data["status"] = data["status"].value
 
-        # 3. Визначити актуальні значення для розрахунку
+        # 4. Визначити актуальні значення для розрахунку
         qty = data.get("quantity", order.quantity)
         price = data.get("unit_price", order.unit_price)
         dist = data.get("distance_km", order.distance_km)
@@ -211,15 +237,14 @@ class OrderService:
             km_rate = data["delivery_price_per_km"]
             fixed_deliv = data.get("delivery_price", order.delivery_price)
         elif "delivery_price" in data and "distance_km" not in data:
-            # Явне оновлення фіксованої вартості доставки
             km_rate = None
             fixed_deliv = data["delivery_price"]
         else:
             km_rate = order.delivery_price_per_km
             fixed_deliv = data.get("delivery_price", order.delivery_price)
 
-        # 4. ЄДИНА ФОРМУЛА РОЗРАХУНКУ
-        product_amount, delivery_amount, total_amount = calculate_order_financials(
+        # 5. Автоматичний розрахунок за єдиною формулою
+        product_amount, delivery_amount, auto_total = calculate_order_financials(
             quantity_tons=qty,
             price_per_ton=price,
             distance_km=dist,
@@ -228,7 +253,26 @@ class OrderService:
         )
 
         data["delivery_price"] = delivery_amount
-        data["total_amount"] = total_amount
+        data["calculated_total_amount"] = auto_total
+
+        # 6. Визначення фінальної суми
+        if not is_manual:
+            # Автоматичний розрахунок (або скидання назад до автоматичного)
+            data["is_total_manual"] = False
+            data["total_amount"] = auto_total
+        else:
+            # Ручний режим активний
+            data["is_total_manual"] = True
+            if manual_total_val is not None:
+                if manual_total_val < Decimal("0.00"):
+                    raise ValueError("Фінальна сума не може бути від'ємною.")
+                data["total_amount"] = manual_total_val.quantize(Decimal("0.01"))
+            elif not order.is_total_manual:
+                # Щойно увімкнено ручний режим без вказання суми -> беремо поточну автоматичну
+                data["total_amount"] = auto_total
+            else:
+                # Вже було ручним, і параметри замовлення змінилися -> зберігаємо попередню ручну суму
+                data["total_amount"] = order.total_amount
 
         return await self.repo.update(session, order, data)
 

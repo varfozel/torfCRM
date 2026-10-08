@@ -282,3 +282,82 @@ async def test_order_api_calculation_create_and_update_with_multiple_tons(client
     assert Decimal(str(patched_data["delivery_amount"])) == Decimal("4760.00")
     assert Decimal(str(patched_data["total_amount"])) == Decimal("23510.00")
 
+
+@pytest.mark.asyncio
+async def test_order_api_manual_total_amount_override(client: AsyncClient):
+    """
+    Test REST API manual total amount override:
+    1. POST order: auto = 30600, is_total_manual = False.
+    2. PATCH order: is_total_manual = True, manual_total_amount = 30000 -> final total = 30000.
+    3. PATCH order: update distance_km = 100 -> auto becomes 32000, final total stays 30000.
+    4. PATCH order: is_total_manual = False -> final total reverts to 32000.
+    5. PATCH order: negative manual amount -> 400 Bad Request.
+    """
+    cust_resp = await client.post(
+        "/api/v1/customers/",
+        json={"name": "Сергій API", "phone": "+380671112244", "address": "м. Луцьк"},
+    )
+    assert cust_resp.status_code == 201
+    cust_id = cust_resp.json()["id"]
+
+    # 1. Create order
+    create_resp = await client.post(
+        "/api/v1/orders/",
+        json={
+            "customer_id": cust_id,
+            "quantity": 2.0,
+            "unit_price": 12500.0,
+            "distance_km": 80.0,
+            "delivery_price_per_km": 70.0,
+        },
+    )
+    assert create_resp.status_code == 201
+    order = create_resp.json()
+    order_id = order["id"]
+    assert float(order["calculated_total_amount"]) == 30600.0
+    assert float(order["total_amount"]) == 30600.0
+    assert float(order["final_total_amount"]) == 30600.0
+    assert order["is_total_manual"] is False
+
+    # 2. Patch manual total to 30000
+    patch1 = await client.patch(
+        f"/api/v1/orders/{order_id}",
+        json={"is_total_manual": True, "manual_total_amount": 30000.0},
+    )
+    assert patch1.status_code == 200
+    data1 = patch1.json()
+    assert data1["is_total_manual"] is True
+    assert float(data1["calculated_total_amount"]) == 30600.0
+    assert float(data1["total_amount"]) == 30000.0
+    assert float(data1["final_total_amount"]) == 30000.0
+
+    # 3. Change distance to 100 km: auto becomes 2*12500 + 100*70 = 25000 + 7000 = 32000
+    # Final total must remain 30000
+    patch2 = await client.patch(
+        f"/api/v1/orders/{order_id}",
+        json={"distance_km": 100.0},
+    )
+    assert patch2.status_code == 200
+    data2 = patch2.json()
+    assert data2["is_total_manual"] is True
+    assert float(data2["calculated_total_amount"]) == 32000.0
+    assert float(data2["total_amount"]) == 30000.0
+
+    # 4. Revert to auto calculation
+    patch3 = await client.patch(
+        f"/api/v1/orders/{order_id}",
+        json={"is_total_manual": False},
+    )
+    assert patch3.status_code == 200
+    data3 = patch3.json()
+    assert data3["is_total_manual"] is False
+    assert float(data3["calculated_total_amount"]) == 32000.0
+    assert float(data3["total_amount"]) == 32000.0
+
+    # 5. Negative manual amount rejected
+    patch_err = await client.patch(
+        f"/api/v1/orders/{order_id}",
+        json={"is_total_manual": True, "manual_total_amount": -100.0},
+    )
+    assert patch_err.status_code in (400, 422)
+

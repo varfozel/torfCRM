@@ -373,6 +373,114 @@ async def test_order_creation_and_update_with_multiple_tons_and_untrusted_total(
 
 
 @pytest.mark.asyncio
+async def test_manual_total_amount_lifecycle(db_session: AsyncSession):
+    """
+    Test manual total amount functionality as requested:
+    1. Auto calculation: 2 t * 12500 + 80 km * 70 = 30600.
+    2. Manual total: auto = 30600, manager sets 30000 -> final_total_amount = 30000, is_total_manual = True.
+    3. Parameter changes during manual total: auto amount changes, but final_total_amount stays 30000.
+    4. Reset to auto: final_total_amount becomes equal to calculated_total_amount again.
+    5. Validation: negative manual total rejected.
+    """
+    customer = await customer_service.create_customer(
+        db_session,
+        CustomerCreate(
+            name="Віктор",
+            phone="+380971234567",
+            address="м. Володимир",
+        ),
+    )
+
+    # 1. Автоматичний розрахунок за замовчуванням
+    order = await order_service.create_order(
+        db_session,
+        OrderCreate(
+            customer_id=customer.id,
+            quantity=Decimal("2.00"),
+            unit_price=Decimal("12500.00"),
+            distance_km=Decimal("80.00"),
+            delivery_price_per_km=Decimal("70.00"),
+        ),
+    )
+    assert order.calculated_total_amount == Decimal("30600.00")
+    assert order.total_amount == Decimal("30600.00")
+    assert order.final_total_amount == Decimal("30600.00")
+    assert order.is_total_manual is False
+
+    # 2. Менеджер встановлює ручну суму 30 000
+    order_manual = await order_service.update_order(
+        db_session,
+        order.id,
+        OrderUpdate(
+            is_total_manual=True,
+            manual_total_amount=Decimal("30000.00"),
+        ),
+    )
+    assert order_manual.is_total_manual is True
+    assert order_manual.calculated_total_amount == Decimal("30600.00")
+    assert order_manual.total_amount == Decimal("30000.00")
+    assert order_manual.final_total_amount == Decimal("30000.00")
+
+    # 3. Зміна параметрів (кількість збільшилась до 3 тонн, кілометраж до 100 км):
+    # Новий автоматичний розрахунок: 3 * 12500 + 100 * 70 = 37500 + 7000 = 44500.
+    # Але оскільки діє ручний режим, фінальна сума залишається 30000!
+    order_params_changed = await order_service.update_order(
+        db_session,
+        order.id,
+        OrderUpdate(
+            quantity=Decimal("3.00"),
+            distance_km=Decimal("100.00"),
+        ),
+    )
+    assert order_params_changed.is_total_manual is True
+    assert order_params_changed.calculated_total_amount == Decimal("44500.00")
+    assert order_params_changed.total_amount == Decimal("30000.00")
+    assert order_params_changed.final_total_amount == Decimal("30000.00")
+
+    # 4. Повернення до автоматичного розрахунку:
+    # Менеджер натискає «Повернути автоматичний розрахунок» (is_total_manual = False)
+    order_reset = await order_service.update_order(
+        db_session,
+        order.id,
+        OrderUpdate(
+            is_total_manual=False,
+        ),
+    )
+    assert order_reset.is_total_manual is False
+    assert order_reset.calculated_total_amount == Decimal("44500.00")
+    assert order_reset.total_amount == Decimal("44500.00")
+    assert order_reset.final_total_amount == Decimal("44500.00")
+
+    # 5. Створення замовлення одразу з ручною сумою:
+    order_created_manual = await order_service.create_order(
+        db_session,
+        OrderCreate(
+            customer_id=customer.id,
+            quantity=Decimal("2.00"),
+            unit_price=Decimal("12500.00"),
+            distance_km=Decimal("80.00"),
+            delivery_price_per_km=Decimal("70.00"),
+            is_total_manual=True,
+            manual_total_amount=Decimal("29500.00"),
+        ),
+    )
+    assert order_created_manual.is_total_manual is True
+    assert order_created_manual.calculated_total_amount == Decimal("30600.00")
+    assert order_created_manual.total_amount == Decimal("29500.00")
+
+    # 6. Валідація: від'ємна сума відхиляється
+    with pytest.raises(ValueError):
+        await order_service.update_order(
+            db_session,
+            order.id,
+            OrderUpdate(
+                is_total_manual=True,
+                manual_total_amount=Decimal("-500.00"),
+            ),
+        )
+
+
+@pytest.mark.asyncio
 async def test_order_delivery_lifecycle(db_session: AsyncSession):
     customer = await customer_service.create_customer(
         db_session,

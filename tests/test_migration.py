@@ -81,10 +81,22 @@ async def test_migration_compatibility_with_old_orders():
             ALTER TABLE orders ADD COLUMN delivery_price_per_km NUMERIC(10, 2);
         """))
 
-    # 6. Verify existing order data is preserved intact
+    # 6. Simulate migration 005: ALTER TABLE orders ADD COLUMN calculated_total_amount NUMERIC(10, 2); is_total_manual BOOLEAN
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE orders ADD COLUMN calculated_total_amount NUMERIC(10, 2);
+        """))
+        await conn.execute(text("""
+            UPDATE orders SET calculated_total_amount = total_amount WHERE calculated_total_amount IS NULL;
+        """))
+        await conn.execute(text("""
+            ALTER TABLE orders ADD COLUMN is_total_manual BOOLEAN DEFAULT FALSE;
+        """))
+
+    # 7. Verify existing order data is preserved intact
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession)
     async with session_factory() as session:
-        result = await session.execute(text("SELECT id, product_name, quantity, unit_price, delivery_price, total_amount, order_date, distance_km, delivery_price_per_km FROM orders WHERE id = 1"))
+        result = await session.execute(text("SELECT id, product_name, quantity, unit_price, delivery_price, total_amount, calculated_total_amount, is_total_manual, order_date, distance_km, delivery_price_per_km FROM orders WHERE id = 1"))
         row = result.mappings().one()
 
         assert row["id"] == 1
@@ -93,6 +105,8 @@ async def test_migration_compatibility_with_old_orders():
         assert Decimal(str(row["unit_price"])) == Decimal("200.00")
         assert Decimal(str(row["delivery_price"])) == Decimal("0.00")
         assert Decimal(str(row["total_amount"])) == Decimal("2000.00")
+        assert Decimal(str(row["calculated_total_amount"])) == Decimal("2000.00")
+        assert bool(row["is_total_manual"]) is False
         assert row["order_date"] is not None
         assert row["distance_km"] is None
         assert row["delivery_price_per_km"] is None

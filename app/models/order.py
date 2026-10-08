@@ -3,6 +3,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -10,6 +11,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,6 +60,18 @@ class Order(Base):
         nullable=False,
     )
     total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    calculated_total_amount: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        default=Decimal("0.00"),
+        server_default="0.00",
+        nullable=False,
+    )
+    is_total_manual: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+    )
 
     delivery_address: Mapped[str] = mapped_column(Text, nullable=False)
     delivery_latitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(9, 6), nullable=True)
@@ -126,6 +140,11 @@ class Order(Base):
 
     @property
     def total_price(self) -> Decimal:
+        return self.total_amount
+
+    @property
+    def final_total_amount(self) -> Decimal:
+        """Фінальна сума замовлення (синонім total_amount)."""
         return self.total_amount
 
     def __repr__(self) -> str:

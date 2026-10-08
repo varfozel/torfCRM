@@ -474,7 +474,17 @@ export default function DashboardPage() {
                         {ord.delivery_price === 0 ? "Самовивіз" : formatCurrency(ord.delivery_price)}
                       </td>
                       <td className="p-3 font-bold text-emerald-600 dark:text-emerald-400">
-                        {formatCurrency(ord.total_amount)}
+                        <div className="flex items-center gap-1.5">
+                          <span>{formatCurrency(ord.total_amount)}</span>
+                          {ord.is_total_manual && (
+                            <span
+                              title="Встановлено вручну"
+                              className="px-1.5 py-0.2 text-[9px] font-bold rounded bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300/80 dark:border-amber-700"
+                            >
+                              Вручну
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-3">
                         <StatusBadge status={ord.status} />
