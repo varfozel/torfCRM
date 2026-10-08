@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from app.models.order import DEFAULT_PRODUCT_NAME, OrderStatus
@@ -14,8 +14,10 @@ class OrderBase(BaseModel):
         max_length=255,
         description="Назва продукції (за замовчуванням 'Торф'яний брикет')",
     )
-    quantity: Decimal = Field(..., gt=0, description="Кількість торф'яного брикету (тонн)")
-    unit_price: Decimal = Field(..., ge=0, description="Ціна за тонну (грн)")
+    quantity: Optional[Decimal] = Field(None, gt=0, description="Кількість торф'яного брикету (тонн)")
+    unit_price: Optional[Decimal] = Field(None, ge=0, description="Ціна за тонну (грн)")
+    quantity_tons: Optional[Decimal] = Field(None, gt=0, description="Кількість торф'яного брикету в тоннах (синонім quantity)")
+    price_per_ton: Optional[Decimal] = Field(None, ge=0, description="Ціна за тонну в грн (синонім unit_price)")
     delivery_price_per_km: Optional[Decimal] = Field(
         None,
         ge=0,
@@ -25,6 +27,27 @@ class OrderBase(BaseModel):
         default=None,
         ge=0,
         description="Вартість доставки в грн (якщо не розраховується за км)",
+    )
+    delivery_amount: Optional[Decimal] = Field(
+        default=None,
+        ge=0,
+        description="Вартість доставки в грн (синонім delivery_price)",
+    )
+    total_amount: Optional[Decimal] = Field(
+        default=None,
+        description="Загальна сума (ігнорується бекендом - завжди перераховується за єдиною формулою)",
+    )
+    total_price: Optional[Decimal] = Field(
+        default=None,
+        description="Загальна сума (синонім total_amount, ігнорується бекендом)",
+    )
+    product_amount: Optional[Decimal] = Field(
+        default=None,
+        description="Вартість товару (синонім product_total, ігнорується бекендом)",
+    )
+    product_total: Optional[Decimal] = Field(
+        default=None,
+        description="Вартість товару (ігнорується бекендом)",
     )
     delivery_address: Optional[str] = Field(
         None,
@@ -36,16 +59,43 @@ class OrderBase(BaseModel):
     order_date: Optional[date] = Field(None, description="Дата замовлення (за замовчуванням поточна дата)")
     notes: Optional[str] = Field(None, description="Примітки до доставки/замовлення")
 
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if data.get("quantity") is None and data.get("quantity_tons") is not None:
+                data["quantity"] = data["quantity_tons"]
+            if data.get("unit_price") is None and data.get("price_per_ton") is not None:
+                data["unit_price"] = data["price_per_ton"]
+            if data.get("delivery_price") is None and data.get("delivery_amount") is not None:
+                data["delivery_price"] = data["delivery_amount"]
+        return data
+
 
 class OrderCreate(OrderBase):
     customer_id: int = Field(..., description="ID існуючого клієнта")
+
+    @model_validator(mode="after")
+    def validate_required_fields(self) -> "OrderCreate":
+        if self.quantity is None:
+            raise ValueError("Поле 'quantity' (або 'quantity_tons') є обов'язковим.")
+        if self.unit_price is None:
+            raise ValueError("Поле 'unit_price' (або 'price_per_ton') є обов'язковим.")
+        return self
 
 
 class OrderUpdate(BaseModel):
     quantity: Optional[Decimal] = Field(None, gt=0, description="Кількість (тонн)")
     unit_price: Optional[Decimal] = Field(None, ge=0, description="Ціна за тонну (грн)")
+    quantity_tons: Optional[Decimal] = Field(None, gt=0, description="Кількість (тонн, синонім quantity)")
+    price_per_ton: Optional[Decimal] = Field(None, ge=0, description="Ціна за тонну (грн, синонім unit_price)")
     delivery_price_per_km: Optional[Decimal] = Field(None, ge=0, description="Ціна доставки за км (грн/км)")
     delivery_price: Optional[Decimal] = Field(None, ge=0, description="Вартість доставки")
+    delivery_amount: Optional[Decimal] = Field(None, ge=0, description="Вартість доставки (синонім delivery_price)")
+    total_amount: Optional[Decimal] = Field(None, description="Загальна сума (ігнорується бекендом - завжди перераховується)")
+    total_price: Optional[Decimal] = Field(None, description="Загальна сума (синонім total_amount)")
+    product_amount: Optional[Decimal] = Field(None, description="Вартість товару (синонім product_total)")
+    product_total: Optional[Decimal] = Field(None, description="Вартість товару")
     delivery_address: Optional[str] = None
     delivery_latitude: Optional[Decimal] = Field(None, ge=-90, le=90)
     delivery_longitude: Optional[Decimal] = Field(None, ge=-180, le=180)
@@ -53,6 +103,18 @@ class OrderUpdate(BaseModel):
     order_date: Optional[date] = None
     status: Optional[OrderStatus] = None
     notes: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if data.get("quantity") is None and data.get("quantity_tons") is not None:
+                data["quantity"] = data["quantity_tons"]
+            if data.get("unit_price") is None and data.get("price_per_ton") is not None:
+                data["unit_price"] = data["price_per_ton"]
+            if data.get("delivery_price") is None and data.get("delivery_amount") is not None:
+                data["delivery_price"] = data["delivery_amount"]
+        return data
 
 
 class OrderResponse(BaseModel):
@@ -93,6 +155,16 @@ class OrderResponse(BaseModel):
         return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
 
     @computed_field
+    def product_amount(self) -> Decimal:
+        """Вартість товару (синонім product_total): quantity * unit_price."""
+        return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
+
+    @computed_field
+    def delivery_amount(self) -> Decimal:
+        """Вартість доставки (синонім delivery_price)."""
+        return self.delivery_price
+
+    @computed_field
     def total_price(self) -> Decimal:
         """Загальна сума (синонім total_amount)."""
         return self.total_amount
@@ -104,4 +176,3 @@ class OrderResponse(BaseModel):
         return self
 
     model_config = ConfigDict(from_attributes=True)
-

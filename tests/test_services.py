@@ -254,6 +254,125 @@ async def test_order_update_recalculates_totals(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_order_creation_and_update_with_multiple_tons_and_untrusted_total(db_session: AsyncSession):
+    """
+    Verification of exact formula:
+      product_amount = quantity_tons * price_per_ton
+      delivery_amount = distance_km * delivery_price_per_km
+      total_amount = product_amount + delivery_amount
+
+    Backend must NOT trust frontend-provided total_amount and must recalculate itself.
+    """
+    customer = await customer_service.create_customer(
+        db_session,
+        CustomerCreate(
+            name="Олександр",
+            phone="+380501234567",
+            address="м. Луцьк",
+        ),
+    )
+
+    # 1. CREATE test case 1:
+    # quantity_tons = 2, price_per_ton = 12500, distance_km = 80, delivery_price_per_km = 70
+    # Expected: product_amount = 25000, delivery_amount = 5600, total_amount = 30600
+    # Pass untrusted total_amount=18100 (bug symptom) to verify backend ignores it
+    order_in1 = OrderCreate(
+        customer_id=customer.id,
+        quantity=Decimal("2.00"),
+        unit_price=Decimal("12500.00"),
+        distance_km=Decimal("80.00"),
+        delivery_price_per_km=Decimal("70.00"),
+        total_amount=Decimal("18100.00"),
+    )
+    order1 = await order_service.create_order(db_session, order_in1)
+
+    assert order1.quantity == Decimal("2.00")
+    assert order1.unit_price == Decimal("12500.00")
+    assert order1.product_total == Decimal("25000.00")
+    assert order1.product_amount == Decimal("25000.00")
+    assert order1.distance_km == Decimal("80.00")
+    assert order1.delivery_price_per_km == Decimal("70.00")
+    assert order1.delivery_price == Decimal("5600.00")
+    assert order1.delivery_amount == Decimal("5600.00")
+    assert order1.total_amount == Decimal("30600.00")
+
+    # 2. CREATE test case 2:
+    # quantity_tons = 1.5, price_per_ton = 12500, distance_km = 68, delivery_price_per_km = 70
+    # Expected: product_amount = 18750, delivery_amount = 4760, total_amount = 23510
+    order_in2 = OrderCreate(
+        customer_id=customer.id,
+        quantity=Decimal("1.50"),
+        unit_price=Decimal("12500.00"),
+        distance_km=Decimal("68.00"),
+        delivery_price_per_km=Decimal("70.00"),
+    )
+    order2 = await order_service.create_order(db_session, order_in2)
+
+    assert order2.quantity == Decimal("1.50")
+    assert order2.unit_price == Decimal("12500.00")
+    assert order2.product_total == Decimal("18750.00")
+    assert order2.product_amount == Decimal("18750.00")
+    assert order2.distance_km == Decimal("68.00")
+    assert order2.delivery_price_per_km == Decimal("70.00")
+    assert order2.delivery_price == Decimal("4760.00")
+    assert order2.delivery_amount == Decimal("4760.00")
+    assert order2.total_amount == Decimal("23510.00")
+
+    # 3. UPDATE test case:
+    # Create an initial order with 1 ton
+    order_init = await order_service.create_order(
+        db_session,
+        OrderCreate(
+            customer_id=customer.id,
+            quantity=Decimal("1.00"),
+            unit_price=Decimal("12500.00"),
+            delivery_price=Decimal("0.00"),
+        ),
+    )
+    assert order_init.total_amount == Decimal("12500.00")
+
+    # Now simulate EditOrderModal update with quantity=2, price=12500, distance_km=80, rate=70
+    # Specifically ensure unit_price is NOT treated as total product cost, but multiplied by quantity (2 * 12500 = 25000)
+    # Also pass untrusted total_amount=18100 to prove backend recalculates it to 30600
+    updated_order = await order_service.update_order(
+        db_session,
+        order_init.id,
+        OrderUpdate(
+            quantity=Decimal("2.00"),
+            unit_price=Decimal("12500.00"),
+            distance_km=Decimal("80.00"),
+            delivery_price_per_km=Decimal("70.00"),
+            delivery_price=Decimal("5600.00"),
+            total_amount=Decimal("18100.00"),
+        ),
+    )
+    assert updated_order.quantity == Decimal("2.00")
+    assert updated_order.unit_price == Decimal("12500.00")
+    assert updated_order.product_total == Decimal("25000.00")
+    assert updated_order.product_amount == Decimal("25000.00")
+    assert updated_order.distance_km == Decimal("80.00")
+    assert updated_order.delivery_price_per_km == Decimal("70.00")
+    assert updated_order.delivery_price == Decimal("5600.00")
+    assert updated_order.delivery_amount == Decimal("5600.00")
+    assert updated_order.total_amount == Decimal("30600.00")  # (2 * 12500) + (80 * 70) = 30600, NOT 18100
+
+    # 4. UPDATE test case with decimal quantity: 1.5 tons, 68 km, 70 грн/км
+    updated_order2 = await order_service.update_order(
+        db_session,
+        order_init.id,
+        OrderUpdate(
+            quantity=Decimal("1.50"),
+            distance_km=Decimal("68.00"),
+            delivery_price_per_km=Decimal("70.00"),
+        ),
+    )
+    assert updated_order2.quantity == Decimal("1.50")
+    assert updated_order2.product_total == Decimal("18750.00")
+    assert updated_order2.delivery_price == Decimal("4760.00")
+    assert updated_order2.total_amount == Decimal("23510.00")
+
+
+@pytest.mark.asyncio
 async def test_order_delivery_lifecycle(db_session: AsyncSession):
     customer = await customer_service.create_customer(
         db_session,

@@ -213,3 +213,72 @@ async def test_calculate_route_api(client: AsyncClient):
     assert data["distance_km"] is not None
     assert "waze_url" in data
 
+
+@pytest.mark.asyncio
+async def test_order_api_calculation_create_and_update_with_multiple_tons(client: AsyncClient):
+    """
+    Test CREATE and UPDATE via REST API with:
+    1. quantity=2, unit_price=12500, distance_km=80, delivery_price_per_km=70 -> 30600
+       (and verify untrusted total_amount=18100 in payload is ignored)
+    2. PATCH quantity=1.5, distance_km=68, delivery_price_per_km=70 -> 23510
+    """
+    # 1. Create customer
+    cust_resp = await client.post(
+        "/api/v1/customers/",
+        json={"name": "Дмитро", "phone": "+380509998877", "address": "м. Луцьк"},
+    )
+    assert cust_resp.status_code == 201
+    cust_id = cust_resp.json()["id"]
+
+    # 2. CREATE order: 2 tons * 12500 + 80 km * 70 = 25000 + 5600 = 30600
+    # Include malicious / erroneous total_amount=18100 in JSON payload
+    create_resp = await client.post(
+        "/api/v1/orders/",
+        json={
+            "customer_id": cust_id,
+            "quantity": 2.0,
+            "unit_price": 12500.0,
+            "distance_km": 80.0,
+            "delivery_price_per_km": 70.0,
+            "delivery_price": 5600.0,
+            "total_amount": 18100.0,  # Must be ignored!
+        },
+    )
+    assert create_resp.status_code == 201
+    created_data = create_resp.json()
+    order_id = created_data["id"]
+
+    assert Decimal(str(created_data["quantity"])) == Decimal("2.00")
+    assert Decimal(str(created_data["unit_price"])) == Decimal("12500.00")
+    assert Decimal(str(created_data["product_total"])) == Decimal("25000.00")
+    assert Decimal(str(created_data["product_amount"])) == Decimal("25000.00")
+    assert Decimal(str(created_data["distance_km"])) == Decimal("80.00")
+    assert Decimal(str(created_data["delivery_price_per_km"])) == Decimal("70.00")
+    assert Decimal(str(created_data["delivery_price"])) == Decimal("5600.00")
+    assert Decimal(str(created_data["delivery_amount"])) == Decimal("5600.00")
+    assert Decimal(str(created_data["total_amount"])) == Decimal("30600.00")
+
+    # 3. UPDATE order: 1.5 tons * 12500 + 68 km * 70 = 18750 + 4760 = 23510
+    # Include erroneous total_amount=99999.0 to verify backend recalculates
+    patch_resp = await client.patch(
+        f"/api/v1/orders/{order_id}",
+        json={
+            "quantity": 1.5,
+            "distance_km": 68.0,
+            "delivery_price_per_km": 70.0,
+            "total_amount": 99999.0,  # Must be ignored!
+        },
+    )
+    assert patch_resp.status_code == 200
+    patched_data = patch_resp.json()
+
+    assert Decimal(str(patched_data["quantity"])) == Decimal("1.50")
+    assert Decimal(str(patched_data["unit_price"])) == Decimal("12500.00")
+    assert Decimal(str(patched_data["product_total"])) == Decimal("18750.00")
+    assert Decimal(str(patched_data["product_amount"])) == Decimal("18750.00")
+    assert Decimal(str(patched_data["distance_km"])) == Decimal("68.00")
+    assert Decimal(str(patched_data["delivery_price_per_km"])) == Decimal("70.00")
+    assert Decimal(str(patched_data["delivery_price"])) == Decimal("4760.00")
+    assert Decimal(str(patched_data["delivery_amount"])) == Decimal("4760.00")
+    assert Decimal(str(patched_data["total_amount"])) == Decimal("23510.00")
+

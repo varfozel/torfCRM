@@ -115,6 +115,16 @@ class Order(Base):
         return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
 
     @property
+    def product_amount(self) -> Decimal:
+        """Вартість товару (синонім product_total): quantity * unit_price."""
+        return self.product_total
+
+    @property
+    def delivery_amount(self) -> Decimal:
+        """Вартість доставки (синонім delivery_price)."""
+        return self.delivery_price
+
+    @property
     def total_price(self) -> Decimal:
         return self.total_amount
 

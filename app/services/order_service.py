@@ -10,6 +10,52 @@ from app.schemas.order import OrderCreate, OrderResponse, OrderUpdate
 from app.services.navigation import navigation_service
 
 
+def calculate_order_financials(
+    quantity_tons: Decimal,
+    price_per_ton: Decimal,
+    distance_km: Optional[Decimal] = None,
+    delivery_price_per_km: Optional[Decimal] = None,
+    delivery_price: Optional[Decimal] = None,
+) -> tuple[Decimal, Decimal, Decimal]:
+    """
+    ЄДИНА ФОРМУЛА РОЗРАХУНКУ ВАРТОСТІ ЗАМОВЛЕННЯ:
+      product_amount = quantity_tons * price_per_ton
+      delivery_amount = distance_km * delivery_price_per_km (або delivery_price якщо без тарифу/км)
+      total_amount = product_amount + delivery_amount
+
+    Backend не довіряє зовнішнім розрахункам total_amount і завжди перераховує їх самостійно.
+
+    Повертає кортеж: (product_amount, delivery_amount, total_amount)
+    """
+    if quantity_tons <= Decimal("0.00"):
+        raise ValueError("Кількість товару повинна бути більшою за нуль.")
+    if price_per_ton < Decimal("0.00"):
+        raise ValueError("Ціна за одиницю не може бути від'ємною.")
+
+    # 1. Вартість товару: product_amount = quantity_tons * price_per_ton
+    product_amount = (quantity_tons * price_per_ton).quantize(Decimal("0.01"))
+
+    # 2. Вартість доставки: delivery_amount = distance_km * delivery_price_per_km
+    if delivery_price_per_km is not None:
+        if delivery_price_per_km < Decimal("0.00"):
+            raise ValueError("Ціна доставки за км не може бути від'ємною.")
+        dist = distance_km if distance_km is not None else Decimal("0.00")
+        if dist < Decimal("0.00"):
+            raise ValueError("Кілометраж доставки не може бути від'ємним.")
+        delivery_amount = (dist * delivery_price_per_km).quantize(Decimal("0.01"))
+    elif delivery_price is not None:
+        if delivery_price < Decimal("0.00"):
+            raise ValueError("Вартість доставки не може бути від'ємною.")
+        delivery_amount = delivery_price.quantize(Decimal("0.01"))
+    else:
+        delivery_amount = Decimal("0.00")
+
+    # 3. Загальна сума: total_amount = product_amount + delivery_amount
+    total_amount = (product_amount + delivery_amount).quantize(Decimal("0.01"))
+
+    return product_amount, delivery_amount, total_amount
+
+
 class OrderService:
     """Service handling Order operations, delivery lifecycles, and financial calculations."""
 
@@ -28,33 +74,14 @@ class OrderService:
         if not customer:
             raise ValueError(f"Клієнта з ID {order_in.customer_id} не знайдено.")
 
-        # Validate non-negative quantities and prices
-        if order_in.quantity <= Decimal("0.00"):
-            raise ValueError("Кількість товару повинна бути більшою за нуль.")
-
-        if order_in.unit_price < Decimal("0.00"):
-            raise ValueError("Ціна за одиницю не може бути від'ємною.")
-
-        # Product total = quantity_tons * price_per_ton
-        product_total = (order_in.quantity * order_in.unit_price).quantize(Decimal("0.01"))
-
-        # Calculate delivery price: distance_km * delivery_price_per_km if per_km rate is provided
-        delivery_price_per_km = order_in.delivery_price_per_km
-        distance_km = order_in.distance_km
-
-        if delivery_price_per_km is not None:
-            if delivery_price_per_km < Decimal("0.00"):
-                raise ValueError("Ціна доставки за км не може бути від'ємною.")
-            dist = distance_km if distance_km is not None else Decimal("0.00")
-            delivery_price = (dist * delivery_price_per_km).quantize(Decimal("0.01"))
-        elif order_in.delivery_price is not None:
-            delivery_price = order_in.delivery_price.quantize(Decimal("0.01"))
-            if delivery_price < Decimal("0.00"):
-                raise ValueError("Вартість доставки не може бути від'ємною.")
-        else:
-            delivery_price = Decimal("0.00")
-
-        total_amount = (product_total + delivery_price).quantize(Decimal("0.01"))
+        # Розрахунок за єдиною формулою: backend самостійно перераховує total_amount
+        product_amount, delivery_amount, total_amount = calculate_order_financials(
+            quantity_tons=order_in.quantity,
+            price_per_ton=order_in.unit_price,
+            distance_km=order_in.distance_km,
+            delivery_price_per_km=order_in.delivery_price_per_km,
+            delivery_price=order_in.delivery_price,
+        )
 
         # Default delivery address and coordinates to customer's if not explicitly provided
         delivery_address = order_in.delivery_address or customer.address
@@ -76,16 +103,16 @@ class OrderService:
 
         order_data = {
             "customer_id": customer.id,
-            "product_name": DEFAULT_PRODUCT_NAME,
+            "product_name": order_in.product_name or DEFAULT_PRODUCT_NAME,
             "quantity": order_in.quantity,
             "unit_price": order_in.unit_price,
-            "delivery_price_per_km": delivery_price_per_km,
-            "delivery_price": delivery_price,
+            "delivery_price_per_km": order_in.delivery_price_per_km,
+            "delivery_price": delivery_amount,
             "total_amount": total_amount,
             "delivery_address": delivery_address.strip(),
             "delivery_latitude": delivery_lat,
             "delivery_longitude": delivery_lon,
-            "distance_km": distance_km,
+            "distance_km": order_in.distance_km,
             "order_date": order_date,
             "status": OrderStatus.NEW.value,
             "notes": order_in.notes,
@@ -155,44 +182,53 @@ class OrderService:
             return None
 
         data = order_update.model_dump(exclude_unset=True)
+
+        # 1. Backend НЕ ПОВИНЕН довіряти total_amount від frontend
+        for untrusted_key in ("total_amount", "total_price", "product_total", "product_amount", "delivery_amount"):
+            data.pop(untrusted_key, None)
+
+        # 2. Нормалізація аліасів
+        if "quantity_tons" in data and "quantity" not in data:
+            data["quantity"] = data.pop("quantity_tons")
+        else:
+            data.pop("quantity_tons", None)
+
+        if "price_per_ton" in data and "unit_price" not in data:
+            data["unit_price"] = data.pop("price_per_ton")
+        else:
+            data.pop("price_per_ton", None)
+
         if "status" in data and isinstance(data["status"], OrderStatus):
             data["status"] = data["status"].value
 
-        # Validate values if provided
+        # 3. Визначити актуальні значення для розрахунку
         qty = data.get("quantity", order.quantity)
-        if qty <= Decimal("0.00"):
-            raise ValueError("Кількість товару повинна бути більшою за нуль.")
-
         price = data.get("unit_price", order.unit_price)
-        if price < Decimal("0.00"):
-            raise ValueError("Ціна за одиницю не може бути від'ємною.")
+        dist = data.get("distance_km", order.distance_km)
 
-        deliv = data.get("delivery_price", order.delivery_price)
-        if deliv < Decimal("0.00"):
-            raise ValueError("Вартість доставки не може бути від'ємною.")
+        # Визначення тарифу доставки
+        if "delivery_price_per_km" in data:
+            km_rate = data["delivery_price_per_km"]
+            fixed_deliv = data.get("delivery_price", order.delivery_price)
+        elif "delivery_price" in data and "distance_km" not in data:
+            # Явне оновлення фіксованої вартості доставки
+            km_rate = None
+            fixed_deliv = data["delivery_price"]
+        else:
+            km_rate = order.delivery_price_per_km
+            fixed_deliv = data.get("delivery_price", order.delivery_price)
 
-        # If quantity, unit_price, delivery_price_per_km, distance_km or delivery_price changed, recalculate
-        financial_keys = ["quantity", "unit_price", "delivery_price_per_km", "distance_km", "delivery_price"]
-        if any(k in data for k in financial_keys):
-            product_total = (qty * price).quantize(Decimal("0.01"))
+        # 4. ЄДИНА ФОРМУЛА РОЗРАХУНКУ
+        product_amount, delivery_amount, total_amount = calculate_order_financials(
+            quantity_tons=qty,
+            price_per_ton=price,
+            distance_km=dist,
+            delivery_price_per_km=km_rate,
+            delivery_price=fixed_deliv,
+        )
 
-            km_rate = data.get("delivery_price_per_km", order.delivery_price_per_km)
-            dist = data.get("distance_km", order.distance_km)
-
-            if km_rate is not None:
-                if km_rate < Decimal("0.00"):
-                    raise ValueError("Ціна доставки за км не може бути від'ємною.")
-                d_val = dist if dist is not None else Decimal("0.00")
-                deliv = (d_val * km_rate).quantize(Decimal("0.01"))
-                data["delivery_price"] = deliv
-            elif "delivery_price" in data and data["delivery_price"] is not None:
-                deliv = data["delivery_price"].quantize(Decimal("0.01"))
-                if deliv < Decimal("0.00"):
-                    raise ValueError("Вартість доставки не може бути від'ємною.")
-            else:
-                deliv = order.delivery_price
-
-            data["total_amount"] = (product_total + deliv).quantize(Decimal("0.01"))
+        data["delivery_price"] = delivery_amount
+        data["total_amount"] = total_amount
 
         return await self.repo.update(session, order, data)
 
@@ -237,7 +273,6 @@ class OrderService:
         }
         if not order.delivery_started_at:
             update_data["delivery_started_at"] = now
-
         return await self.repo.update(session, order, update_data)
 
     async def cancel_order(
