@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useCallback } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   DollarSign,
   Truck,
@@ -48,6 +48,22 @@ function EditOrderForm({ order, onClose }: { order: Order; onClose: () => void }
   }, [order.order_date, order.created_at]);
 
   const [orderDate, setOrderDate] = useState<string>(initialDateStr);
+
+  // Fetch unavailable dates for calendar warning
+  const { data: unavailableDates = [] } = useQuery({
+    queryKey: ["unavailable-dates"],
+    queryFn: () => api.calendar.listUnavailableDates(),
+  });
+
+  const unavailableForOrderDate = useMemo(() => {
+    if (!orderDate) return null;
+    return (
+      unavailableDates.find(
+        (ud) => (typeof ud.date === "string" ? ud.date.split("T")[0] : String(ud.date)) === orderDate
+      ) || null
+    );
+  }, [orderDate, unavailableDates]);
+
 
   // 4. Quantity (Tonnage in tons) - no default 0
   const [quantity, setQuantity] = useState<number | "">(
@@ -323,6 +339,19 @@ function EditOrderForm({ order, onClose }: { order: Order; onClose: () => void }
             onChange={(e) => setOrderDate(e.target.value)}
             className="w-full px-3 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
           />
+          {unavailableForOrderDate && (
+            <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <div className="font-bold">⚠️ Увага: день позначений як небажаний.</div>
+                {unavailableForOrderDate.reason && (
+                  <div className="text-[11px] text-amber-800 dark:text-amber-300">
+                    Причина: {unavailableForOrderDate.reason}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-1.5">

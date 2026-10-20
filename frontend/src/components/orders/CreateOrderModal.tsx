@@ -97,6 +97,22 @@ function CreateOrderForm({
     queryFn: () => api.customers.list({ limit: 100 }),
   });
 
+  // Fetch unavailable dates for calendar warning
+  const { data: unavailableDates = [] } = useQuery({
+    queryKey: ["unavailable-dates"],
+    queryFn: () => api.calendar.listUnavailableDates(),
+  });
+
+  const unavailableForOrderDate = useMemo(() => {
+    if (!orderDate) return null;
+    return (
+      unavailableDates.find(
+        (ud) => (typeof ud.date === "string" ? ud.date.split("T")[0] : String(ud.date)) === orderDate
+      ) || null
+    );
+  }, [orderDate, unavailableDates]);
+
+
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return customers.slice(0, 8);
     const q = customerSearch.toLowerCase();
@@ -558,6 +574,23 @@ function CreateOrderForm({
             className="w-full sm:w-72 px-3.5 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
           />
         </div>
+
+        {unavailableForOrderDate && (
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs">
+            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <div className="font-bold">⚠️ Увага: цей день позначений як небажаний для доставки.</div>
+              {unavailableForOrderDate.reason && (
+                <div className="text-amber-800 dark:text-amber-300">
+                  <strong>Причина:</strong> {unavailableForOrderDate.reason}
+                </div>
+              )}
+              <div className="text-[11px] text-amber-700 dark:text-amber-400">
+                Створення замовлення дозволено, але перевірте графік водіїв.
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 4. КІЛЬКІСТЬ ТОНН & 5. ЦІНА ЗА ТОННУ (Звичайні числові поля без 0 за замовчуванням) */}

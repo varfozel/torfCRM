@@ -1,5 +1,12 @@
 export type OrderStatus = "new" | "planned" | "in_delivery" | "delivered" | "cancelled";
 
+export interface UnavailableDate {
+  id: number;
+  date: string;
+  reason?: string | null;
+  created_at: string;
+}
+
 export interface Customer {
   id: number;
   name: string;

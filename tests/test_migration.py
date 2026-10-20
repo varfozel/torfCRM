@@ -93,7 +93,21 @@ async def test_migration_compatibility_with_old_orders():
             ALTER TABLE orders ADD COLUMN is_total_manual BOOLEAN DEFAULT FALSE;
         """))
 
-    # 7. Verify existing order data is preserved intact
+    # 7. Simulate migration 006: CREATE TABLE unavailable_dates
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE unavailable_dates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date DATE NOT NULL UNIQUE,
+                reason VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+            );
+        """))
+        await conn.execute(text("""
+            INSERT INTO unavailable_dates (date, reason) VALUES ('2026-10-25', 'Вихідний день');
+        """))
+
+    # 8. Verify existing order data is preserved intact and unavailable_dates exists
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession)
     async with session_factory() as session:
         result = await session.execute(text("SELECT id, product_name, quantity, unit_price, delivery_price, total_amount, calculated_total_amount, is_total_manual, order_date, distance_km, delivery_price_per_km FROM orders WHERE id = 1"))
@@ -110,6 +124,11 @@ async def test_migration_compatibility_with_old_orders():
         assert row["order_date"] is not None
         assert row["distance_km"] is None
         assert row["delivery_price_per_km"] is None
+
+        ud_res = await session.execute(text("SELECT id, date, reason FROM unavailable_dates WHERE date = '2026-10-25'"))
+        ud_row = ud_res.mappings().one()
+        assert ud_row["date"] == "2026-10-25"
+        assert ud_row["reason"] == "Вихідний день"
 
     await engine.dispose()
 

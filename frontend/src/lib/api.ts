@@ -13,6 +13,7 @@ import {
   ProductSpec,
   RouteCalculationResult,
   SystemSettings,
+  UnavailableDate,
   WarehouseInfo,
 } from "@/types";
 
@@ -307,4 +308,30 @@ export const api = {
       return res.data;
     },
   },
+
+  // Calendar Unavailable Dates
+  calendar: {
+    listUnavailableDates: async (params?: { from_date?: string; to_date?: string }): Promise<UnavailableDate[]> => {
+      const search = new URLSearchParams();
+      if (params?.from_date) search.set("from_date", params.from_date);
+      if (params?.to_date) search.set("to_date", params.to_date);
+      const q = search.toString() ? `?${search.toString()}` : "";
+      const res = await request<UnavailableDate[]>(`/calendar/unavailable-dates${q}`);
+      return res.data;
+    },
+    addUnavailableDate: async (payload: { date: string; reason?: string | null }): Promise<UnavailableDate> => {
+      const res = await request<UnavailableDate>("/calendar/unavailable-dates", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      return res.data;
+    },
+    removeUnavailableDate: async (dateStr: string): Promise<{ success: boolean; message: string }> => {
+      const res = await request<{ success: boolean; message: string }>(`/calendar/unavailable-dates/${dateStr}`, {
+        method: "DELETE",
+      });
+      return res.data;
+    },
+  },
 };
+
