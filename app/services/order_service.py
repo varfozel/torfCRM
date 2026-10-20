@@ -143,7 +143,7 @@ class OrderService:
     async def list_orders(
         self,
         session: AsyncSession,
-        status: Optional[str] = None,
+        status: Optional[str | Sequence[str] | OrderStatus] = None,
         customer_id: Optional[int] = None,
         search_query: Optional[str] = None,
         date_from: Optional[datetime] = None,
@@ -169,7 +169,7 @@ class OrderService:
     async def count_orders(
         self,
         session: AsyncSession,
-        status: Optional[str] = None,
+        status: Optional[str | Sequence[str] | OrderStatus] = None,
         customer_id: Optional[int] = None,
         search_query: Optional[str] = None,
         date_from: Optional[datetime] = None,
@@ -183,6 +183,19 @@ class OrderService:
             date_from=date_from,
             date_to=date_to,
         )
+
+    async def get_orders_category_counts(self, session: AsyncSession) -> dict[str, int]:
+        """Отримати кількість замовлень за ключовими категоріями CRM."""
+        active = await self.count_orders(session, status="active")
+        delivered = await self.count_orders(session, status=OrderStatus.DELIVERED.value)
+        cancelled = await self.count_orders(session, status=OrderStatus.CANCELLED.value)
+        total = await self.count_orders(session)
+        return {
+            "active": active,
+            "delivered": delivered,
+            "cancelled": cancelled,
+            "all": total,
+        }
 
     async def update_order(
         self,

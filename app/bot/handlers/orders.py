@@ -1,5 +1,7 @@
 from decimal import Decimal
+import math
 import re
+from typing import Optional, Sequence
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -10,11 +12,13 @@ from app.bot.keyboards import (
     delivery_price_keyboard,
     main_menu_keyboard,
     order_actions_keyboard,
+    order_categories_keyboard,
     order_confirm_keyboard,
+    order_list_keyboard,
 )
 from app.bot.states import OrderCreateStates
 from app.database import AsyncSessionLocal
-from app.models.order import DEFAULT_PRODUCT_NAME, OrderStatus
+from app.models.order import DEFAULT_PRODUCT_NAME, Order, OrderStatus
 from app.schemas.order import OrderCreate
 from app.services.customer_service import customer_service
 from app.services.navigation import navigation_service
@@ -30,42 +34,146 @@ STATUS_ICONS = {
     OrderStatus.CANCELLED.value: "❌ Скасовано",
 }
 
+ORDER_CATEGORIES = {
+    "active": {
+        "title": "🟢 Активні",
+        "filter": [OrderStatus.NEW.value, OrderStatus.PLANNED.value, OrderStatus.IN_DELIVERY.value],
+    },
+    "delivered": {
+        "title": "✅ Виконані",
+        "filter": OrderStatus.DELIVERED.value,
+    },
+    "cancelled": {
+        "title": "❌ Скасовані",
+        "filter": OrderStatus.CANCELLED.value,
+    },
+    "all": {
+        "title": "📋 Всі замовлення",
+        "filter": None,
+    },
+}
+
+ORDERS_PAGE_SIZE = 5
+
+
+def normalize_phone_number(phone: Optional[str]) -> str:
+    """Нормалізація номера телефону для Telegram/дзвінка."""
+    if not phone:
+        return ""
+    cleaned = re.sub(r"[^\d+]", "", str(phone).strip())
+    if cleaned.startswith("0") and len(cleaned) == 10:
+        cleaned = "+38" + cleaned
+    elif cleaned.startswith("380") and not cleaned.startswith("+"):
+        cleaned = "+" + cleaned
+    elif not cleaned.startswith("+") and cleaned.isdigit():
+        cleaned = "+" + cleaned
+    return cleaned
+
 
 def render_order_card(order) -> str:
-    """Форматування тексту картки замовлення."""
+    """Форматування тексту картки замовлення з усіма обов'язковими показниками."""
     status_label = STATUS_ICONS.get(order.status, order.status)
     cust_name = order.customer.name if order.customer else f"ID {order.customer_id}"
     cust_phone = order.customer.phone if order.customer else "—"
+
+    # Дата замовлення
+    if getattr(order, "order_date", None):
+        order_date_str = order.order_date.strftime("%d.%m.%Y")
+    elif getattr(order, "created_at", None):
+        order_date_str = order.created_at.strftime("%d.%m.%Y")
+    else:
+        order_date_str = "—"
+
+    # Розрахункові показники
+    product_total = getattr(order, "product_total", (order.quantity * order.unit_price).quantize(Decimal("0.01")))
+    delivery_price = getattr(order, "delivery_price", Decimal("0.00"))
+
+    # Кілометраж та тариф за км
+    dist_val = getattr(order, "distance_km", None)
+    dist_str = f"{dist_val} км" if dist_val is not None else "Не вказано"
+
+    tariff_val = getattr(order, "delivery_price_per_km", None)
+    tariff_str = f"{tariff_val} грн/км" if tariff_val is not None else "Не вказано"
+
+    # Ознака встановлення суми вручну
+    is_manual = getattr(order, "is_total_manual", False)
+    if is_manual:
+        calc_total = getattr(order, "calculated_total_amount", None)
+        calc_note = f", розрахункова: {calc_total} грн" if calc_total is not None else ""
+        total_line = f"💰 **Загальна/фінальна сума:** `{order.total_amount}` грн ⚠️ *(Встановлено вручну{calc_note})*"
+    else:
+        total_line = f"💰 **Загальна/фінальна сума:** `{order.total_amount}` грн"
 
     coords_line = ""
     if order.delivery_latitude and order.delivery_longitude:
         coords_line = f"📍 Точка вивантаження: `{order.delivery_latitude:.6f}, {order.delivery_longitude:.6f}`\n"
 
     delivery_times = ""
-    if order.delivery_started_at:
+    if getattr(order, "delivery_started_at", None):
         delivery_times += f"⏱ Виїзд: `{order.delivery_started_at.strftime('%Y-%m-%d %H:%M')}`\n"
-    if order.delivery_completed_at:
+    if getattr(order, "delivery_completed_at", None):
         delivery_times += f"🏁 Доставлено: `{order.delivery_completed_at.strftime('%Y-%m-%d %H:%M')}`\n"
 
-    notes_line = f"📝 Примітки: _{order.notes}_\n" if order.notes else ""
-
-    product_total = getattr(order, "product_total", (order.quantity * order.unit_price).quantize(Decimal("0.01")))
-    delivery_price = getattr(order, "delivery_price", Decimal("0.00"))
+    notes_line = f"📝 Примітки: _{order.notes}_\n" if getattr(order, "notes", None) else ""
 
     return (
         f"📦 **Замовлення #{order.id}** — {status_label}\n\n"
         f"👤 **Клієнт:** {cust_name}\n"
         f"📞 **Телефон:** `{cust_phone}`\n"
+        f"🏠 **Адреса доставки:** {order.delivery_address}\n"
+        f"📅 **Дата замовлення:** {order_date_str}\n"
         f"🧱 **Товар:** {order.product_name}\n"
         f"⚖️ **Кількість:** {order.quantity} | **Ціна за од.:** {order.unit_price} грн\n"
+        f"🛣 **Кілометраж:** {dist_str}\n"
+        f"🚚 **Ціна доставки за км:** {tariff_str}\n"
+        f"🚚 **Вартість доставки:** `{delivery_price}` грн\n"
         f"💵 **Сума товару:** `{product_total}` грн\n"
-        f"🚚 **Доставка:** `{delivery_price}` грн\n"
-        f"💰 **Разом до сплати:** `{order.total_amount}` грн\n\n"
-        f"🏠 **Адреса доставки:** {order.delivery_address}\n"
+        f"{total_line}\n\n"
         f"{coords_line}"
         f"{delivery_times}"
         f"{notes_line}"
     )
+
+
+def render_order_list_text(
+    orders: Sequence[Order],
+    category_title: str,
+    page: int,
+    total_pages: int,
+    total_count: int,
+) -> str:
+    """Текстовий список замовлень для поточної сторінки пагінації."""
+    if not orders:
+        return (
+            f"📦 **Замовлення: {category_title}**\n\n"
+            f"Замовлень у цій категорії наразі немає."
+        )
+
+    lines = [
+        f"📦 **Замовлення: {category_title}**",
+        f"📄 Сторінка {page} з {total_pages} (Всього: {total_count})\n",
+    ]
+
+    for o in orders:
+        status_label = STATUS_ICONS.get(o.status, o.status)
+        cust_name = o.customer.name if o.customer else f"ID {o.customer_id}"
+        if getattr(o, "order_date", None):
+            date_str = o.order_date.strftime("%d.%m.%Y")
+        elif getattr(o, "created_at", None):
+            date_str = o.created_at.strftime("%d.%m.%Y")
+        else:
+            date_str = "—"
+
+        lines.append(
+            f"📦 **Замовлення #{o.id}** | {status_label}\n"
+            f"👤 **Клієнт:** {cust_name}\n"
+            f"⚖️ **Кількість тонн:** {o.quantity} т | 💰 **Сума:** {o.total_amount} грн\n"
+            f"🏠 **Адреса:** {o.delivery_address}\n"
+            f"📅 **Дата:** {date_str}\n"
+        )
+
+    lines.append("Натисніть кнопку замовлення нижче для перегляду деталей:")
+    return "\n".join(lines)
 
 
 def render_order_summary(data: dict) -> str:
@@ -98,44 +206,230 @@ def render_order_summary(data: dict) -> str:
     )
 
 
+async def show_orders_page(
+    event: Message | CallbackQuery,
+    category: str = "active",
+    page: int = 1,
+):
+    """Відображення списку замовлень обраної категорії з пагінацією."""
+    cat_info = ORDER_CATEGORIES.get(category, ORDER_CATEGORIES["all"])
+    status_filter = cat_info["filter"]
+
+    async with AsyncSessionLocal() as session:
+        total_count = await order_service.count_orders(session, status=status_filter)
+        total_pages = max(1, math.ceil(total_count / ORDERS_PAGE_SIZE))
+        page = min(max(1, page), total_pages)
+        skip = (page - 1) * ORDERS_PAGE_SIZE
+        orders = await order_service.list_orders(
+            session,
+            status=status_filter,
+            skip=skip,
+            limit=ORDERS_PAGE_SIZE,
+        )
+
+    text = render_order_list_text(
+        orders=orders,
+        category_title=cat_info["title"],
+        page=page,
+        total_pages=total_pages,
+        total_count=total_count,
+    )
+    kb = order_list_keyboard(
+        orders=orders,
+        category=category,
+        page=page,
+        total_pages=total_pages,
+    )
+
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+        try:
+            await event.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+        except Exception:
+            await event.message.answer(text, reply_markup=kb, parse_mode="Markdown")
+    else:
+        await event.answer(text, reply_markup=kb, parse_mode="Markdown")
+
+
 @router.message(Command("orders"))
-@router.message(F.text == "📋 Замовлення")
+@router.message(F.text.in_(["📦 Замовлення", "📋 Замовлення"]))
 async def cmd_list_orders(message: Message):
-    """Список останніх замовлень з можливістю фільтрації за статусом."""
-    status_filter = None
+    """Меню вибору категорії замовлень або фільтр зі статусом."""
     if message.text and message.text.startswith("/orders"):
         parts = message.text.split(maxsplit=1)
         if len(parts) > 1:
-            raw_status = parts[1].strip().lower()
+            raw_arg = parts[1].strip().lower()
+            if raw_arg in ORDER_CATEGORIES:
+                await show_orders_page(message, category=raw_arg, page=1)
+                return
             valid_statuses = [s.value for s in OrderStatus]
-            if raw_status in valid_statuses:
-                status_filter = raw_status
+            if raw_arg in valid_statuses:
+                cat = "delivered" if raw_arg == "delivered" else ("cancelled" if raw_arg == "cancelled" else "active")
+                await show_orders_page(message, category=cat, page=1)
+                return
 
+    # Показуємо меню вибору категорій з лічильниками
     async with AsyncSessionLocal() as session:
-        orders = await order_service.list_orders(session, status=status_filter, limit=10)
+        counts = await order_service.get_orders_category_counts(session)
 
-    if not orders:
-        msg = "📋 Замовлень не знайдено."
-        if status_filter:
-            msg += f" Зі статусом `{status_filter}`."
-        await message.answer(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
-        return
+    text = (
+        "📦 **Управління замовленнями**\n\n"
+        "Оберіть категорію замовлень для перегляду:"
+    )
+    await message.answer(
+        text,
+        reply_markup=order_categories_keyboard(counts),
+        parse_mode="Markdown",
+    )
 
-    filter_title = f" зі статусом `{status_filter}`" if status_filter else ""
-    await message.answer(f"📋 **Останні замовлення**{filter_title} ({len(orders)}):", parse_mode="Markdown")
 
-    for o in orders:
-        status_label = STATUS_ICONS.get(o.status, o.status)
-        cust_name = o.customer.name if o.customer else "—"
-        await message.answer(
-            f"📦 **Замовлення #{o.id}** | {status_label}\n"
-            f"👤 {cust_name} (📞 `{o.customer.phone if o.customer else ''}`)\n"
-            f"🧱 {o.product_name}: {o.quantity} (товар: {o.product_total} грн, доставка: {o.delivery_price} грн)\n"
-            f"💰 Разом: **{o.total_amount} грн**\n"
-            f"🏠 {o.delivery_address}\n"
-            f"👉 Деталі: `/order_{o.id}`",
+@router.callback_query(F.data.startswith("ord_cat:"))
+async def cb_category_select(call: CallbackQuery):
+    """Обробник вибору категорії замовлень."""
+    parts = call.data.split(":")
+    category = parts[1]
+    page = int(parts[2]) if len(parts) > 2 else 1
+    await show_orders_page(call, category=category, page=page)
+
+
+@router.callback_query(F.data.startswith("ord_pg:"))
+async def cb_page_switch(call: CallbackQuery):
+    """Обробник перемикання сторінок пагінації."""
+    parts = call.data.split(":")
+    category = parts[1]
+    page = int(parts[2])
+    await show_orders_page(call, category=category, page=page)
+
+
+@router.callback_query(F.data == "ord_cat_refresh")
+async def cb_category_refresh(call: CallbackQuery):
+    """Оновлення лічильників у меню категорій."""
+    async with AsyncSessionLocal() as session:
+        counts = await order_service.get_orders_category_counts(session)
+    await call.answer("Оновлено 🔄")
+    text = (
+        "📦 **Управління замовленнями**\n\n"
+        "Оберіть категорію замовлень для перегляду:"
+    )
+    try:
+        await call.message.edit_text(
+            text,
+            reply_markup=order_categories_keyboard(counts),
             parse_mode="Markdown",
         )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "ord_nav:categories")
+async def cb_nav_categories(call: CallbackQuery):
+    """Повернення до меню вибору категорій."""
+    async with AsyncSessionLocal() as session:
+        counts = await order_service.get_orders_category_counts(session)
+    await call.answer()
+    text = (
+        "📦 **Управління замовленнями**\n\n"
+        "Оберіть категорію замовлень для перегляду:"
+    )
+    try:
+        await call.message.edit_text(
+            text,
+            reply_markup=order_categories_keyboard(counts),
+            parse_mode="Markdown",
+        )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "ord_nav:home")
+async def cb_nav_home(call: CallbackQuery, state: FSMContext):
+    """Повернення до головного меню бота."""
+    await state.clear()
+    await call.answer()
+    wh = navigation_service.warehouse_info
+    async with AsyncSessionLocal() as session:
+        counts = await order_service.get_orders_category_counts(session)
+    text = (
+        f"👋 **Головне меню Peat CRM**\n\n"
+        f"📍 **Базовий склад:** {wh['name']} ({wh['address']})\n\n"
+        f"Оберіть категорію замовлень нижче або скористайтесь кнопками меню:"
+    )
+    try:
+        await call.message.edit_text(
+            text,
+            reply_markup=order_categories_keyboard(counts),
+            parse_mode="Markdown",
+        )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "noop")
+async def cb_noop(call: CallbackQuery):
+    """Клік на неактивну кнопку індикатора сторінки."""
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("ord_det:"))
+async def cb_order_details(call: CallbackQuery):
+    """Відкриття деталей конкретного замовлення з клавіатури списку."""
+    parts = call.data.split(":")
+    order_id = int(parts[1])
+    category = parts[2] if len(parts) > 2 else "active"
+    page = int(parts[3]) if len(parts) > 3 else 1
+
+    async with AsyncSessionLocal() as session:
+        order = await order_service.get_order(session, order_id)
+
+    if not order:
+        await call.answer(f"❌ Замовлення #{order_id} не знайдено.", show_alert=True)
+        return
+
+    await call.answer()
+    waze_url = navigation_service.generate_waze_url(
+        latitude=order.delivery_latitude,
+        longitude=order.delivery_longitude,
+        address=order.delivery_address,
+    )
+    gmaps_url = navigation_service.generate_google_maps_url(
+        latitude=order.delivery_latitude,
+        longitude=order.delivery_longitude,
+        address=order.delivery_address,
+    )
+
+    cust_phone = order.customer.phone if order.customer else None
+    card = render_order_card(order)
+    kb = order_actions_keyboard(
+        order_id=order.id,
+        order_status=order.status,
+        customer_phone=cust_phone,
+        waze_url=waze_url,
+        google_maps_url=gmaps_url,
+        back_category=category,
+        back_page=page,
+    )
+    await call.message.edit_text(card, reply_markup=kb, parse_mode="Markdown")
+
+
+@router.callback_query(F.data.startswith("ord_call:"))
+async def cb_call_customer(call: CallbackQuery):
+    """Відправка картки контакту клієнта для швидкого виклику."""
+    order_id = int(call.data.split(":")[1])
+    async with AsyncSessionLocal() as session:
+        order = await order_service.get_order(session, order_id)
+
+    if not order or not order.customer or not order.customer.phone:
+        await call.answer("⚠️ Номер телефону клієнта не знайдено в CRM.", show_alert=True)
+        return
+
+    phone = normalize_phone_number(order.customer.phone)
+    cust_name = order.customer.name or "Клієнт"
+
+    await call.answer(f"📞 Телефон: {phone}", show_alert=False)
+    await call.message.answer_contact(
+        phone_number=phone,
+        first_name=cust_name,
+    )
 
 
 @router.message(F.text.regexp(r"^/order_(\d+)$"))
@@ -166,12 +460,15 @@ async def cmd_order_details(message: Message):
         address=order.delivery_address,
     )
 
+    cust_phone = order.customer.phone if order.customer else None
     card = render_order_card(order)
     kb = order_actions_keyboard(
         order_id=order.id,
         order_status=order.status,
+        customer_phone=cust_phone,
         waze_url=waze_url,
         google_maps_url=gmaps_url,
+        back_category=None,
     )
     await message.answer(card, reply_markup=kb, parse_mode="Markdown")
 
@@ -179,7 +476,10 @@ async def cmd_order_details(message: Message):
 # Callbacks for Delivery Actions
 @router.callback_query(F.data.startswith("start_del:"))
 async def cb_start_delivery(call: CallbackQuery):
-    order_id = int(call.data.split(":")[1])
+    parts = call.data.split(":")
+    order_id = int(parts[1])
+    back_cat = parts[2] if len(parts) > 2 else None
+    back_pg = int(parts[3]) if len(parts) > 3 else 1
     try:
         async with AsyncSessionLocal() as session:
             order = await order_service.start_delivery(session, order_id)
@@ -192,9 +492,18 @@ async def cb_start_delivery(call: CallbackQuery):
         gmaps_url = navigation_service.generate_google_maps_url(
             order.delivery_latitude, order.delivery_longitude, order.delivery_address
         )
+        cust_phone = order.customer.phone if order.customer else None
         await call.message.edit_text(
             render_order_card(order),
-            reply_markup=order_actions_keyboard(order.id, order.status, waze_url, gmaps_url),
+            reply_markup=order_actions_keyboard(
+                order.id,
+                order.status,
+                customer_phone=cust_phone,
+                waze_url=waze_url,
+                google_maps_url=gmaps_url,
+                back_category=back_cat,
+                back_page=back_pg,
+            ),
             parse_mode="Markdown",
         )
     except Exception as e:
@@ -203,7 +512,10 @@ async def cb_start_delivery(call: CallbackQuery):
 
 @router.callback_query(F.data.startswith("complete_del:"))
 async def cb_complete_delivery(call: CallbackQuery):
-    order_id = int(call.data.split(":")[1])
+    parts = call.data.split(":")
+    order_id = int(parts[1])
+    back_cat = parts[2] if len(parts) > 2 else None
+    back_pg = int(parts[3]) if len(parts) > 3 else 1
     try:
         async with AsyncSessionLocal() as session:
             order = await order_service.complete_delivery(session, order_id)
@@ -213,9 +525,21 @@ async def cb_complete_delivery(call: CallbackQuery):
         waze_url = navigation_service.generate_waze_url(
             order.delivery_latitude, order.delivery_longitude, order.delivery_address
         )
+        gmaps_url = navigation_service.generate_google_maps_url(
+            order.delivery_latitude, order.delivery_longitude, order.delivery_address
+        )
+        cust_phone = order.customer.phone if order.customer else None
         await call.message.edit_text(
             render_order_card(order),
-            reply_markup=order_actions_keyboard(order.id, order.status, waze_url=waze_url),
+            reply_markup=order_actions_keyboard(
+                order.id,
+                order.status,
+                customer_phone=cust_phone,
+                waze_url=waze_url,
+                google_maps_url=gmaps_url,
+                back_category=back_cat,
+                back_page=back_pg,
+            ),
             parse_mode="Markdown",
         )
     except Exception as e:
@@ -224,16 +548,26 @@ async def cb_complete_delivery(call: CallbackQuery):
 
 @router.callback_query(F.data.startswith("cancel_del:"))
 async def cb_cancel_delivery(call: CallbackQuery):
-    order_id = int(call.data.split(":")[1])
+    parts = call.data.split(":")
+    order_id = int(parts[1])
+    back_cat = parts[2] if len(parts) > 2 else None
+    back_pg = int(parts[3]) if len(parts) > 3 else 1
     try:
         async with AsyncSessionLocal() as session:
             order = await order_service.cancel_order(session, order_id, notes="Скасовано через Telegram бот")
             order = await order_service.get_order(session, order_id)
 
         await call.answer("❌ Замовлення скасовано", show_alert=True)
+        cust_phone = order.customer.phone if order.customer else None
         await call.message.edit_text(
             render_order_card(order),
-            reply_markup=order_actions_keyboard(order.id, order.status),
+            reply_markup=order_actions_keyboard(
+                order.id,
+                order.status,
+                customer_phone=cust_phone,
+                back_category=back_cat,
+                back_page=back_pg,
+            ),
             parse_mode="Markdown",
         )
     except Exception as e:
@@ -242,7 +576,7 @@ async def cb_cancel_delivery(call: CallbackQuery):
 
 # FSM Wizard for Creating an Order
 @router.message(Command("new_order"))
-@router.message(F.text == "➕ Нове замовлення")
+@router.message(F.text.in_(["➕ Створити замовлення", "➕ Нове замовлення"]))
 async def cmd_new_order(message: Message, state: FSMContext):
     """Початок оформлення замовлення."""
     await state.clear()

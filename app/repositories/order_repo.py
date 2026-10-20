@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.customer import Customer
-from app.models.order import Order
+from app.models.order import Order, OrderStatus
 
 
 class OrderRepository:
@@ -33,14 +33,28 @@ class OrderRepository:
     def _apply_filters(
         self,
         stmt,
-        status: Optional[str] = None,
+        status: Optional[str | Sequence[str] | OrderStatus] = None,
         customer_id: Optional[int] = None,
         search_query: Optional[str] = None,
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
     ):
         if status:
-            stmt = stmt.where(Order.status == status)
+            if isinstance(status, OrderStatus):
+                stmt = stmt.where(Order.status == status.value)
+            elif isinstance(status, (list, tuple, set)):
+                status_vals = [s.value if isinstance(s, OrderStatus) else str(s) for s in status]
+                stmt = stmt.where(Order.status.in_(status_vals))
+            elif status == "active":
+                stmt = stmt.where(
+                    Order.status.in_([
+                        OrderStatus.NEW.value,
+                        OrderStatus.PLANNED.value,
+                        OrderStatus.IN_DELIVERY.value,
+                    ])
+                )
+            else:
+                stmt = stmt.where(Order.status == str(status))
         if customer_id:
             stmt = stmt.where(Order.customer_id == customer_id)
         if date_from:
@@ -67,7 +81,7 @@ class OrderRepository:
     async def list_orders(
         self,
         session: AsyncSession,
-        status: Optional[str] = None,
+        status: Optional[str | Sequence[str] | OrderStatus] = None,
         customer_id: Optional[int] = None,
         search_query: Optional[str] = None,
         date_from: Optional[datetime] = None,
@@ -101,7 +115,7 @@ class OrderRepository:
     async def count_orders(
         self,
         session: AsyncSession,
-        status: Optional[str] = None,
+        status: Optional[str | Sequence[str] | OrderStatus] = None,
         customer_id: Optional[int] = None,
         search_query: Optional[str] = None,
         date_from: Optional[datetime] = None,

@@ -570,3 +570,84 @@ def test_navigation_service():
     assert "name" in wh
     assert "latitude" in wh
     assert "longitude" in wh
+
+
+@pytest.mark.asyncio
+async def test_order_filtering_by_status_and_categories(db_session: AsyncSession):
+    customer = await customer_service.create_customer(
+        db_session,
+        CustomerCreate(
+            name="Категорійний Клієнт",
+            phone="+380991112233",
+            address="м. Ковель",
+        ),
+    )
+
+    # 1. New order
+    o_new = await order_service.create_order(
+        db_session,
+        OrderCreate(customer_id=customer.id, quantity=Decimal("2.00"), unit_price=Decimal("100.00")),
+    )
+    # 2. Planned order
+    o_planned = await order_service.create_order(
+        db_session,
+        OrderCreate(customer_id=customer.id, quantity=Decimal("3.00"), unit_price=Decimal("100.00")),
+    )
+    await order_service.update_order(db_session, o_planned.id, OrderUpdate(status=OrderStatus.PLANNED))
+
+    # 3. In delivery order
+    o_in_del = await order_service.create_order(
+        db_session,
+        OrderCreate(customer_id=customer.id, quantity=Decimal("4.00"), unit_price=Decimal("100.00")),
+    )
+    await order_service.start_delivery(db_session, o_in_del.id)
+
+    # 4. Delivered order
+    o_delivered = await order_service.create_order(
+        db_session,
+        OrderCreate(customer_id=customer.id, quantity=Decimal("5.00"), unit_price=Decimal("100.00")),
+    )
+    await order_service.start_delivery(db_session, o_delivered.id)
+    await order_service.complete_delivery(db_session, o_delivered.id)
+
+    # 5. Cancelled order
+    o_cancelled = await order_service.create_order(
+        db_session,
+        OrderCreate(customer_id=customer.id, quantity=Decimal("6.00"), unit_price=Decimal("100.00")),
+    )
+    await order_service.cancel_order(db_session, o_cancelled.id)
+
+    # Verify single status filter
+    delivered_orders = await order_service.list_orders(db_session, status="delivered")
+    assert any(o.id == o_delivered.id for o in delivered_orders)
+    assert not any(o.id == o_cancelled.id for o in delivered_orders)
+
+    cancelled_orders = await order_service.list_orders(db_session, status="cancelled")
+    assert any(o.id == o_cancelled.id for o in cancelled_orders)
+    assert not any(o.id == o_delivered.id for o in cancelled_orders)
+
+    # Verify "active" status filter (new, planned, in_delivery)
+    active_orders = await order_service.list_orders(db_session, status="active")
+    active_ids = [o.id for o in active_orders]
+    assert o_new.id in active_ids
+    assert o_planned.id in active_ids
+    assert o_in_del.id in active_ids
+    assert o_delivered.id not in active_ids
+    assert o_cancelled.id not in active_ids
+
+    # Verify list of statuses
+    planned_or_del = await order_service.list_orders(
+        db_session, status=[OrderStatus.PLANNED.value, OrderStatus.IN_DELIVERY.value]
+    )
+    pod_ids = [o.id for o in planned_or_del]
+    assert o_planned.id in pod_ids
+    assert o_in_del.id in pod_ids
+    assert o_new.id not in pod_ids
+
+    # Verify category counts
+    counts = await order_service.get_orders_category_counts(db_session)
+    assert counts["active"] >= 3
+    assert counts["delivered"] >= 1
+    assert counts["cancelled"] >= 1
+    assert counts["all"] >= 5
+

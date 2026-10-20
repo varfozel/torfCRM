@@ -65,3 +65,11 @@ async def cmd_cancel_fsm(message: Message, state: FSMContext):
 
     await state.clear()
     await message.answer("❌ Дія скасована.", reply_markup=main_menu_keyboard())
+
+
+@router.message(F.text.in_(["🔄 Оновити / Назад", "🔄 Оновити", "🏠 Головне меню", "Головне меню"]))
+async def cmd_refresh_or_home(message: Message, state: FSMContext):
+    """Оновлення або повернення до головного меню."""
+    await state.clear()
+    await cmd_start(message, state)
+
