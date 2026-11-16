@@ -4,32 +4,47 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, ReplyKeyboardRemove
 
 from app.bot.keyboards import main_menu_keyboard
+from app.bot.widgets.service import widget_service
 from app.services.navigation import navigation_service
 
 router = Router(name="common")
 
 
 @router.message(CommandStart())
+@router.message(Command("dashboard"))
+@router.message(F.text == "📊 Панель CRM")
 async def cmd_start(message: Message, state: FSMContext):
-    """Привітання та головне меню."""
+    """Привітання та відкриття інтерактивної панелі управління."""
     await state.clear()
+    
+    # Спроба надіслати нативний інтерактивний HTML Widget
+    sent_widget = False
+    if message.bot:
+        sent_widget = await widget_service.send_dashboard(
+            bot=message.bot,
+            chat_id=message.chat.id,
+            initial_tab="orders",
+        )
+
+    # Fallback або інформаційне повідомлення
     wh = navigation_service.warehouse_info
     text = (
         f"👋 **Вітаємо в Peat CRM!**\n"
-        f"Система управління клієнтами, замовленнями та доставками торфу.\n\n"
+        f"Інтерактивна система управління клієнтами, замовленнями та доставками торфу.\n\n"
         f"📍 **Базовий склад відвантаження:**\n"
         f"• {wh['name']}\n"
         f"• {wh['address']}\n\n"
-        f"📋 **Основні команди:**\n"
-        f"• `/new_order` — оформити нове замовлення\n"
-        f"• `/orders` — список останніх замовлень\n"
-        f"• `/order_ID` — деталі замовлення (напр. `/order_1`)\n"
-        f"• `/new_customer` — додати нового клієнта\n"
-        f"• `/customers` — пошук або список клієнтів (напр. `/customers 050`)\n"
-        f"• `/help` — довідка\n\n"
-        f"Оберіть дію в меню нижче:"
+        f"📋 **Швидкі команди:**\n"
+        f"• `/new_order` — оформити замовлення\n"
+        f"• `/orders` — список замовлень\n"
+        f"• `/order_ID` — картка замовлення (напр. `/order_1`)\n"
+        f"• `/customers` — база клієнтів\n"
+        f"• `/dashboard` — оновити інтерактивну панель CRM\n"
+        f"• `/help` — довідка"
     )
-    await message.answer(text, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+    if not sent_widget:
+        await message.answer(text, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+
 
 
 @router.message(Command("help"))

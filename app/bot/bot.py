@@ -5,7 +5,8 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Message, TelegramObject
 
-from app.bot.handlers import common_router, customers_router, orders_router
+from app.bot.handlers import common_router, customers_router, orders_router, widgets_router
+from app.bot.handlers.widgets import handle_widget_update
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -43,14 +44,18 @@ class AccessControlMiddleware(BaseMiddleware):
 def create_bot_and_dispatcher() -> tuple[Bot, Dispatcher]:
     """Create and configure aiogram 3 Bot and Dispatcher instances."""
     settings = get_settings()
-    bot = Bot(token=settings.TELEGRAM_BOT_TOKEN or "dummy:token")
+    bot = Bot(token=settings.TELEGRAM_BOT_TOKEN or "123456789:AAG_DummyTokenForTestsAndInit12345")
     dp = Dispatcher(storage=MemoryStorage())
 
     # Register access control middleware
     dp.message.middleware(AccessControlMiddleware())
     dp.callback_query.middleware(AccessControlMiddleware())
 
+    # Register widget query observer
+    dp.update.register(handle_widget_update)
+
     # Register routers
+    dp.include_router(widgets_router)
     dp.include_router(common_router)
     dp.include_router(customers_router)
     dp.include_router(orders_router)

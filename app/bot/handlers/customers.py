@@ -1,3 +1,4 @@
+import re
 from decimal import Decimal
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -10,6 +11,7 @@ from app.bot.keyboards import (
     main_menu_keyboard,
 )
 from app.bot.states import CustomerCreateStates, OrderCreateStates
+from app.bot.widgets.service import widget_service
 from app.database import AsyncSessionLocal
 from app.schemas.customer import CustomerCreate
 from app.services.customer_service import customer_service
@@ -17,6 +19,49 @@ from app.services.navigation import navigation_service
 from app.services.order_service import order_service
 
 router = Router(name="customers")
+
+
+@router.message(F.text.regexp(r"^/customer_(\d+)$"))
+async def cmd_customer_details(message: Message):
+    """Детальна інтерактивна картка клієнта за ID."""
+    match = re.search(r"\d+", message.text)
+    if not match:
+        return
+    customer_id = int(match.group(0))
+
+    sent_widget = False
+    if message.bot:
+        sent_widget = await widget_service.send_customer_card(
+            bot=message.bot,
+            chat_id=message.chat.id,
+            customer_id=customer_id,
+        )
+
+    if sent_widget:
+        return
+
+    # Fallback to text card
+    async with AsyncSessionLocal() as session:
+        c = await customer_service.get_customer(session, customer_id)
+
+    if not c:
+        await message.answer(f"❌ Клієнта #{customer_id} не знайдено.", reply_markup=main_menu_keyboard())
+        return
+
+    coords_str = f"📍 {c.latitude:.4f}, {c.longitude:.4f}" if c.latitude and c.longitude else "📍 Координати не вказано"
+    notes_str = f"\n📝 _{c.notes}_" if c.notes else ""
+    card = (
+        f"👤 **{c.name}** (ID: `{c.id}`)\n"
+        f"📞 `{c.phone}`\n"
+        f"🏠 {c.address}\n"
+        f"{coords_str}{notes_str}\n"
+        f"Всього замовлень: {len(c.orders)}"
+    )
+    await message.answer(
+        card,
+        reply_markup=customer_actions_keyboard(c.id),
+        parse_mode="Markdown",
+    )
 
 
 @router.message(Command("customers"))
@@ -52,7 +97,8 @@ async def cmd_list_customers(message: Message):
             f"👤 **{c.name}** (ID: `{c.id}`)\n"
             f"📞 `{c.phone}`\n"
             f"🏠 {c.address}\n"
-            f"{coords_str}{notes_str}"
+            f"{coords_str}{notes_str}\n"
+            f"👉 Відкрити: `/customer_{c.id}`"
         )
         await message.answer(
             card,

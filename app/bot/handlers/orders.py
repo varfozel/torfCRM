@@ -13,6 +13,7 @@ from app.bot.keyboards import (
     order_confirm_keyboard,
 )
 from app.bot.states import OrderCreateStates
+from app.bot.widgets.service import widget_service
 from app.database import AsyncSessionLocal
 from app.models.order import DEFAULT_PRODUCT_NAME, OrderStatus
 from app.schemas.order import OrderCreate
@@ -148,6 +149,19 @@ async def cmd_order_details(message: Message):
         return
 
     order_id = int(match.group(0))
+
+    # Спроба надіслати інтерактивну картку замовлення через нативний HTML Widget
+    sent_widget = False
+    if message.bot:
+        sent_widget = await widget_service.send_order_card(
+            bot=message.bot,
+            chat_id=message.chat.id,
+            order_id=order_id,
+        )
+
+    if sent_widget:
+        return
+
     async with AsyncSessionLocal() as session:
         order = await order_service.get_order(session, order_id)
 
@@ -244,8 +258,19 @@ async def cb_cancel_delivery(call: CallbackQuery):
 @router.message(Command("new_order"))
 @router.message(F.text == "➕ Нове замовлення")
 async def cmd_new_order(message: Message, state: FSMContext):
-    """Початок оформлення замовлення."""
+    """Початок оформлення замовлення через нативний HTML Widget або FSM fallback."""
     await state.clear()
+
+    sent_widget = False
+    if message.bot:
+        sent_widget = await widget_service.send_order_create(
+            bot=message.bot,
+            chat_id=message.chat.id,
+        )
+
+    if sent_widget:
+        return
+
     await state.set_state(OrderCreateStates.select_customer)
     await message.answer(
         "📦 **Оформлення нового замовлення** (Крок 1/5)\n"
@@ -260,6 +285,18 @@ async def cmd_new_order(message: Message, state: FSMContext):
 async def cb_start_order_for_customer(call: CallbackQuery, state: FSMContext):
     """Швидкий старт замовлення прямо з картки клієнта."""
     customer_id = int(call.data.split(":")[1])
+
+    sent_widget = False
+    if call.bot and call.message:
+        sent_widget = await widget_service.send_order_create(
+            bot=call.bot,
+            chat_id=call.message.chat.id,
+            selected_customer_id=customer_id,
+        )
+    if sent_widget:
+        await call.answer("Відкриваємо форму створення...", show_alert=False)
+        return
+
     async with AsyncSessionLocal() as session:
         customer = await customer_service.get_customer(session, customer_id)
 

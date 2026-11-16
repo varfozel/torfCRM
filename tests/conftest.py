@@ -2,6 +2,7 @@ import asyncio
 from typing import AsyncGenerator
 import pytest
 import pytest_asyncio
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -13,14 +14,6 @@ from app.models.base import Base
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for each test session."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
 @pytest_asyncio.fixture(scope="function")
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Provides an isolated in-memory SQLite database session for tests."""
@@ -28,6 +21,8 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         TEST_DATABASE_URL,
         echo=False,
         future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
 
     async with engine.begin() as conn:

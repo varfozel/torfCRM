@@ -13,6 +13,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
     """Головне меню команд."""
     return ReplyKeyboardMarkup(
         keyboard=[
+            [KeyboardButton(text="📊 Панель CRM")],
             [KeyboardButton(text="📋 Замовлення"), KeyboardButton(text="👥 Клієнти")],
             [KeyboardButton(text="➕ Нове замовлення"), KeyboardButton(text="➕ Новий клієнт")],
             [KeyboardButton(text="ℹ️ Допомога")],
